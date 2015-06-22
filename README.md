@@ -18,7 +18,7 @@ Possible values for HashAlgo (not case sensitive):
 - SHA384
 - SHA512
 
-If HashAlgo nor specified, SHA-1 is used by default.
+If HashAlgo is not specified, SHA-1 is used by default.
 
 ResultFileName specifies an optional text file where the result will be appended.
 
