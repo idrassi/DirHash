@@ -3,7 +3,7 @@
  * for sorting. Based on OpenSSL for hash algorithms in order to support all versions
  * of Windows from 2000 to 7 without relying on the presence of any specific CSP.
  *
- * Copyright (c) 2010 Mounir IDRASSI <mounir.idrassi@idrix.fr>. All rights reserved.
+ * Copyright (c) 2010-2015 Mounir IDRASSI <mounir.idrassi@idrix.fr>. All rights reserved.
  *
  * This program is distributed in the hope that it will be useful, 
  * but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY 
@@ -33,6 +33,7 @@
 #include <tchar.h>
 #include <strsafe.h>
 #include <openssl/sha.h>
+#include <openssl/md5.h>
 #include <list>
 using namespace std;
 
@@ -56,6 +57,23 @@ public:
    virtual int GetHashSize() = 0;
    virtual LPCTSTR GetID() = 0;
    static Hash* GetHash(LPCTSTR szHashId);
+};
+
+class Md5 : public Hash
+{
+protected:
+   MD5_CTX m_ctx;
+public:
+   Md5() : Hash() 
+   {
+      MD5_Init(&m_ctx);
+   }
+
+   void Init() { MD5_Init(&m_ctx);}
+   void Update(LPBYTE pbData, DWORD dwLength) { MD5_Update(&m_ctx, pbData, dwLength);}
+   void Final(LPBYTE pbDigest) { MD5_Final(pbDigest, &m_ctx);}
+   LPCTSTR GetID() { return _T("MD5");}
+   int GetHashSize() { return 16;}
 };
 
 class Sha1 : public Hash
@@ -144,7 +162,10 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
    {
       return new Sha512();
    }
-
+   if (_tcsicmp(szHashId, _T("MD5")) == 0)
+   {
+      return new Md5();
+   }
    return NULL;
 }
 
@@ -158,7 +179,10 @@ protected:
 public:
    CDirContent(LPCWSTR szPath, LPCWSTR szName, bool bIsDir) : m_bIsDir(bIsDir), m_szPath(szPath)
    {
-      if (szPath[wcslen(szPath) - 1] != _T('\\') && szPath[wcslen(szPath) - 1] != _T('/'))
+      if (szPath[wcslen(szPath) - 1] == _T('/'))
+         m_szPath[wcslen(szPath) - 1] = _T('\\');
+
+      if (szPath[wcslen(szPath) - 1] != _T('\\'))
          m_szPath += _T("\\");
       m_szPath += szName;
    }
@@ -170,15 +194,26 @@ public:
    operator LPCWSTR () { return m_szPath.c_str();}
 };
 
-DWORD HashFile(LPCTSTR szFilePath, Hash* pHash)
+DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames)
 {
    DWORD dwError = 0;
-   FILE* f = _tfopen(szFilePath, _T("rb"));
+   FILE* f = NULL;
+
+   if (bIncludeNames)
+   {
+      TCHAR szCanonalizedName[MAX_PATH + 1];
+      if (!PathCanonicalize (szCanonalizedName, szFilePath))
+         lstrcpy (szCanonalizedName, szFilePath);
+      pHash->Update ((LPBYTE) szCanonalizedName, _tcslen (szCanonalizedName) * sizeof(TCHAR));
+   }
+
+   f = _tfopen(szFilePath, _T("rb"));
    if(f)
    {
       size_t len;
       while (  (len = fread(g_pbBuffer, 1, sizeof(g_pbBuffer), f)) != 0)
          pHash->Update(g_pbBuffer, len);
+
       fclose(f);
    }
    else
@@ -189,13 +224,21 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash)
    return dwError;
 }
 
-DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash)
+DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames)
 {
    wstring szDir;
    WIN32_FIND_DATA ffd;
    HANDLE hFind = INVALID_HANDLE_VALUE;
    DWORD dwError=0;
    list<CDirContent> dirContent;
+
+   if (bIncludeNames)
+   {
+      TCHAR szCanonalizedName[MAX_PATH + 1];
+      if (!PathCanonicalize (szCanonalizedName, szDirPath))
+         lstrcpy (szCanonalizedName, szDirPath);
+      pHash->Update ((LPBYTE) szCanonalizedName, _tcslen (szCanonalizedName) * sizeof(TCHAR));
+   }
 
    szDir += szDirPath;
    szDir += _T("\\*");
@@ -247,13 +290,13 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash)
    {
       if (it->IsDir())
       {
-         dwError = HashDirectory( it->GetPath(), pHash);
+         dwError = HashDirectory( it->GetPath(), pHash, bIncludeNames);
          if (dwError)
             break;
       }
       else
       {
-         dwError = HashFile(it->GetPath(), pHash);
+         dwError = HashFile(it->GetPath(), pHash, bIncludeNames);
          if (dwError)
             break;
       }
@@ -264,7 +307,7 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash)
 
 void ShowUsage()
 {
-   _tprintf(TEXT("Usage: DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-nowait]\n  Possible values for HashAlgo (not case sensitive) : \n   - SHA1\n   - SHA256\n   - SHA384\n   - SHA512\n  ResultFileName specifies a text file where the result will be appended\n"));
+   _tprintf(TEXT("Usage: DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-nowait] [-hashnames]\n  Possible values for HashAlgo (not case sensitive, default is SHA1) : \n   - MD5\n   - SHA1\n   - SHA256\n   - SHA384\n   - SHA512\n\n  ResultFileName specifies a text file where the result will be appended\n\n  -nowait avoids displaying the waiting prompt before exiting\n\n  -hashnames indicates that file names will be included in the hash computation"));
 }
 
 void WaitForExit(bool bDontWait = false)
@@ -286,136 +329,68 @@ int _tmain(int argc, _TCHAR* argv[])
    Hash* pHash = NULL;
    FILE* outputFile = NULL;
    bool bDontWait = false;
+   bool bIncludeNames = false;
+
+   setbuf (stdout, NULL);
 
    SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2015"));
 
-   _tprintf(_T("\nDirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010\nRecursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\nSupported Algorithms : SHA1, SHA256, SHA384, SHA512\nUsing OpenSSL\n\n"));
+   _tprintf(_T("\nDirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2015\nRecursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\nSupported Algorithms : MD5, SHA1, SHA256, SHA384, SHA512\nUsing OpenSSL\n\n"));
 
-   if (argc < 2 || argc > 6)
+   if (argc < 2 || argc > 7)
    {
       ShowUsage();
       WaitForExit();
       return 1;
    }
 
-   if (argc == 3)
+   if (argc >= 3)
    {
-      if (_tcsicmp(argv[2], _T("-nowait")) == 0)
+      for (int i = 2; i < argc; i++)
       {
-         bDontWait = true;
-         pHash = new Sha1();
-      }
-      else
-      {
-         pHash = Hash::GetHash(argv[2]);
-         if (!pHash)
+         if (_tcscmp(argv[i],_T("-t")) == 0)
          {
-            ShowUsage();
-            WaitForExit();
-            return 1;
+            if ((i + 1) >= argc)
+            {
+               // missing file argument
+               ShowUsage();
+               WaitForExit();
+               return 1;
+            }
+
+            outputFile = _tfopen(argv[i + 1], _T("a+t"));
+            if (!outputFile)
+            {
+               _tprintf(_T("Failed to open the result file for writing!\n"));
+               WaitForExit();
+               return 1;
+            }
+
+            i++;
+         }
+         else if (_tcscmp(argv[i],_T("-nowait")) == 0)
+         {
+            bDontWait = true;
+         }
+         else if (_tcscmp(argv[i],_T("-hashnames")) == 0)
+         {
+            bIncludeNames = true;
+         }
+         else
+         {
+            pHash = Hash::GetHash(argv[i]);
+            if (!pHash)
+            {
+               if (outputFile) fclose(outputFile);
+               ShowUsage();
+               WaitForExit();
+               return 1;
+            }
          }
       }
    }
-   else if (argc == 4)
-   {
-      if (_tcscmp(argv[2],_T("-t")) == 0)
-	   {
-	      outputFile = _tfopen(argv[3], _T("a+t"));
-		   if (!outputFile)
-		   {
-			   _tprintf(_T("Failed to open the result file for writing!\n"));
-			   WaitForExit();
-			   return 1;
-		   }
-		   pHash = new Sha1();
-	   }
-	   else if (_tcscmp(argv[3],_T("-nowait")) == 0)
-	   {
-         bDontWait = true;
-         pHash = Hash::GetHash(argv[2]);
-         if (!pHash)
-         {
-            ShowUsage();
-            WaitForExit();
-            return 1;
-         }         
-	   }
-	   else
-      {
-         ShowUsage();
-         WaitForExit();
-         return 1;
-      }
 
-   }
-   else if (argc == 5)
-   {
-      if (_tcscmp(argv[2],_T("-t")) && _tcscmp(argv[3],_T("-t")))
-      {
-         ShowUsage();
-         WaitForExit();
-         return 1;
-      }
-      if (_tcscmp(argv[2],_T("-t")) == 0)
-      {
-         if (_tcscmp(argv[4], _T("-nowait")))
-         {
-            ShowUsage();
-            WaitForExit();
-            return 1;
-         }
-         bDontWait = true;
-         outputFile = _tfopen(argv[3], _T("a+t"));
-         pHash = new Sha1();
-      }
-      else
-      {
-         outputFile = _tfopen(argv[4], _T("a+t"));
-         pHash = Hash::GetHash(argv[2]);
-      }
-      if (!outputFile)
-      {
-         _tprintf(_T("Failed to open the result file for writing!\n"));
-         if (pHash) delete pHash;
-         WaitForExit();
-         return 1;
-      }
-      if (!pHash)
-      {
-         if (outputFile) fclose(outputFile);
-         ShowUsage();
-         WaitForExit();
-         return 1;
-      }
-   }
-   else if (argc == 6)
-   {
-      if (_tcscmp(argv[3],_T("-t")) || _tcscmp(argv[5],_T("-nowait")))
-      {
-         ShowUsage();
-         WaitForExit();
-         return 1;
-      }
-
-      outputFile = _tfopen(argv[4], _T("a+t"));
-      pHash = Hash::GetHash(argv[2]);
-      if (!outputFile)
-      {
-         _tprintf(_T("Failed to open the result file for writing!\n"));
-         if (pHash) delete pHash;
-         WaitForExit();
-         return 1;
-      }
-      if (!pHash)
-      {
-         if (outputFile) fclose(outputFile);
-         ShowUsage();
-         WaitForExit();
-         return 1;
-      }
-      bDontWait = true;
-   }
-   else
+   if (!pHash)
       pHash = new Sha1();
 
    // Check that the input path plus 3 is not longer than MAX_PATH.
@@ -435,7 +410,7 @@ int _tmain(int argc, _TCHAR* argv[])
    {
       if (outputFile) fclose(outputFile);
       delete pHash;
-      _tprintf(TEXT("Error: The given path doesn't exist\n"), MAX_PATH);
+      _tprintf(TEXT("Error: The given input file doesn't exist\n"));
       WaitForExit(bDontWait);
       return (-2);
    }
@@ -446,9 +421,9 @@ int _tmain(int argc, _TCHAR* argv[])
    fflush(stdout);
 
    if (PathIsDirectory(argv[1]))
-      dwError = HashDirectory(argv[1], pHash);
+      dwError = HashDirectory(argv[1], pHash, bIncludeNames);
    else
-      dwError = HashFile(argv[1], pHash);
+      dwError = HashFile(argv[1], pHash, bIncludeNames);
 
    if (dwError == NO_ERROR)
    {
