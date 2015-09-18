@@ -30,6 +30,7 @@
 #include <windows.h>
 #include <Shlwapi.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <tchar.h>
 #include <strsafe.h>
 #include <openssl/sha.h>
@@ -40,6 +41,8 @@ using namespace std;
 
 static BYTE g_pbBuffer[4096];
 static TCHAR g_szCanonalizedName[MAX_PATH + 1];
+static WORD  g_wAttributes = FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED;
+static HANDLE g_hConsole = NULL;
 
 // Used for sorting directory content
 bool compare_nocase (LPCWSTR first, LPCWSTR second)
@@ -335,9 +338,27 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, list<wst
    return dwError;
 }
 
+void ShowLogo()
+{
+   SetConsoleTextAttribute (g_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+   _tprintf(_T("\nDirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2015\n\nRecursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\nSupported Algorithms : MD5, SHA1, SHA256, SHA384, SHA512\nUsing OpenSSL\n\n"));
+   SetConsoleTextAttribute (g_hConsole, g_wAttributes);
+}
+
 void ShowUsage()
 {
-   _tprintf(TEXT("Usage: DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n  Possible values for HashAlgo (not case sensitive, default is SHA1) : \n   - MD5\n   - SHA1\n   - SHA256\n   - SHA384\n   - SHA512\n\n  ResultFileName specifies a text file where the result will be appended\n\n  -nowait avoids displaying the waiting prompt before exiting\n\n  -hashnames indicates that file names will be included in the hash computation"));
+   ShowLogo();
+   _tprintf(TEXT("Usage: DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n\n  Possible values for HashAlgo (not case sensitive, default is SHA1):\n  MD5, SHA1, SHA256, SHA384, SHA512\n\n  ResultFileName: text file where the result will be appended\n\n  -overwrite (only when -t present): output text file will be overwritten\n\n  -quiet: No text is displayed or written except the hash value\n\n  -nowait: avoid displaying the waiting prompt before exiting\n\n  -hashnames: file names will be included in hash computation\n\n  -exclude specifies a name pattern for files to exclude from hash computation.\n\n"));
+}
+
+void ShowError(LPCTSTR szMsg, ...)
+{
+   va_list args;
+   va_start( args, szMsg );
+   SetConsoleTextAttribute (g_hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+   _vtprintf (szMsg, args );
+   SetConsoleTextAttribute (g_hConsole, g_wAttributes);
+   va_end( args );
 }
 
 void WaitForExit(bool bDontWait = false)
@@ -358,15 +379,22 @@ int _tmain(int argc, _TCHAR* argv[])
    DWORD dwError=0;
    Hash* pHash = NULL;
    FILE* outputFile = NULL;
+   wstring outputFileName;
    bool bDontWait = false;
    bool bIncludeNames = false;
+   bool bQuiet = false;
+   bool bOverwrite = false;	
    list<wstring> excludeSpecList;
+   g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+   CONSOLE_SCREEN_BUFFER_INFO originalConsoleInfo;
+
+   // get original console attributes
+   if (GetConsoleScreenBufferInfo(g_hConsole, &originalConsoleInfo))
+      g_wAttributes = originalConsoleInfo.wAttributes;
 
    setbuf (stdout, NULL);
 
-   SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2015"));
-
-   _tprintf(_T("\nDirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2015\n\nRecursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\nSupported Algorithms : MD5, SHA1, SHA256, SHA384, SHA512\nUsing OpenSSL\n\n"));
+   SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2015"));   
 
    if (argc < 2)
    {
@@ -383,26 +411,28 @@ int _tmain(int argc, _TCHAR* argv[])
          {
             if ((i + 1) >= argc)
             {
-               // missing file argument
-               _tprintf(_T("Error: Missing argument for switch -t\n\n"));
+               // missing file argument               
                ShowUsage();
-               WaitForExit();
+               ShowError(_T("Error: Missing argument for switch -t\n"));
+               WaitForExit(bDontWait);
                return 1;
             }
 
-            outputFile = _tfopen(argv[i + 1], _T("a+t"));
-            if (!outputFile)
-            {
-               _tprintf(_T("Failed to open the result file for writing!\n"));
-               WaitForExit();
-               return 1;
-            }
+            outputFileName = argv[i + 1];
 
             i++;
+         }
+         else if (_tcscmp(argv[i],_T("-overwrite")) == 0)
+         {
+            bOverwrite = true;
          }
          else if (_tcscmp(argv[i],_T("-nowait")) == 0)
          {
             bDontWait = true;
+         }
+         else if (_tcscmp(argv[i],_T("-quiet")) == 0)
+         {
+            bQuiet = true;
          }
          else if (_tcscmp(argv[i],_T("-hashnames")) == 0)
          {
@@ -412,10 +442,10 @@ int _tmain(int argc, _TCHAR* argv[])
          {
             if ((i + 1) >= argc)
             {
-               // missing file argument
-               _tprintf(_T("Error: Missing argument for switch -exclude\n\n"));
+               // missing file argument               
                ShowUsage();
-               WaitForExit();
+               ShowError(_T("Error: Missing argument for switch -exclude\n"));
+               WaitForExit(bDontWait);
                return 1;
             }
 
@@ -428,10 +458,10 @@ int _tmain(int argc, _TCHAR* argv[])
             pHash = Hash::GetHash(argv[i]);
             if (!pHash)
             {
-               if (outputFile) fclose(outputFile);
-               _tprintf(_T("Error: Argument \"%s\" not recognized\n\n"), argv[i]);
+               if (outputFile) fclose(outputFile);               
                ShowUsage();
-               WaitForExit();
+               ShowError(_T("Error: Argument \"%s\" not recognized\n"), argv[i]);
+               WaitForExit(bDontWait);
                return 1;
             }
          }
@@ -440,6 +470,9 @@ int _tmain(int argc, _TCHAR* argv[])
 
    if (!pHash)
       pHash = new Sha1();
+
+   if (!bQuiet)
+      ShowLogo();
 
    // Check that the input path plus 3 is not longer than MAX_PATH.
    // Three characters are for the "\*" plus NULL appended below.
@@ -450,7 +483,8 @@ int _tmain(int argc, _TCHAR* argv[])
    {
       if (outputFile) fclose(outputFile);
       delete pHash;
-      _tprintf(TEXT("\nError: Input directory/file path is too long. Maximum length is %d characters\n"), MAX_PATH);
+      if (!bQuiet)
+         ShowError(TEXT("Error: Input directory/file path is too long. Maximum length is %d characters\n"), MAX_PATH);
       WaitForExit(bDontWait);
       return (-1);
    }
@@ -458,15 +492,19 @@ int _tmain(int argc, _TCHAR* argv[])
    {
       if (outputFile) fclose(outputFile);
       delete pHash;
-      _tprintf(TEXT("Error: The given input file doesn't exist\n"));
+      if (!bQuiet)
+         ShowError(TEXT("Error: The given input file doesn't exist\n"));
       WaitForExit(bDontWait);
       return (-2);
    }
 
-   _tprintf(_T("Using %s to compute hash of \"%s\" ...\n"), 
+   if (!bQuiet)
+   {
+      _tprintf(_T("Using %s to compute hash of \"%s\" ...\n"), 
       pHash->GetID(), 
       PathFindFileName(argv[1]));
-   fflush(stdout);
+      fflush(stdout);
+   }
 
    if (PathIsDirectory(argv[1]))
    {
@@ -492,19 +530,43 @@ int _tmain(int argc, _TCHAR* argv[])
    if (dwError == NO_ERROR)
    {
       pHash->Final(pbDigest);
-      if (outputFile)
+
+      if (!outputFileName.empty())
       {
-         _ftprintf(outputFile, __T("%s hash of \"%s\" (%d bytes) = "), 
-            pHash->GetID(), 
-            PathFindFileName(argv[1]), 
-            pHash->GetHashSize());
+         outputFile = _tfopen(outputFileName.c_str(), bOverwrite? _T("wt") : _T("a+t"));
+         if (!outputFile)
+         {
+            if (!bQuiet)
+            {
+               ShowError (_T("!!!Failed to open the result file for writing!!!\n"));
+            }
+         }
       }
-      _tprintf(_T("%s (%d bytes) = "), pHash->GetID(), pHash->GetHashSize());
+      
+      if (!bQuiet)
+      {
+			if (outputFile)
+			{
+				_ftprintf(outputFile, __T("%s hash of \"%s\" (%d bytes) = "), 
+					pHash->GetID(), 
+					PathFindFileName(argv[1]), 
+					pHash->GetHashSize());
+			}
+			_tprintf(_T("%s (%d bytes) = "), pHash->GetID(), pHash->GetHashSize());
+      }
+
+      // display hash in yellow
+      SetConsoleTextAttribute (g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
+
       for (int i=0; i < pHash->GetHashSize(); i++)
       {
          _tprintf(_T("%.2X"), pbDigest[i]);
          if (outputFile) _ftprintf(outputFile, _T("%.2X"), pbDigest[i]);
       }
+
+      // restore normal text color
+      SetConsoleTextAttribute (g_hConsole, g_wAttributes);
+
       _tprintf(_T("\n"));
       if (outputFile) _ftprintf(outputFile, _T("\n"));
    }
