@@ -19,13 +19,21 @@
   <tr>
     <td width="18%" bgcolor="#33CCCC" valign="top">&nbsp;
       <p style="margin-left: 20"><b><font face="Arial" size="2" color="#000000">
-	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.4/DirHash-1.4-x86.zip" target="_blank">DirHash Windows 32-Bit Binary</a><br>
-	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.4/DirHash-1.4-x64.zip" target="_blank">DirHash Windows 64-Bit Binary</a><br>
-      <a href="https://github.com/idrassi/DirHash/archive/DirHash_1.4.zip" target="_blank">DirHash Source Code Zip</a><br>
+	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.5/DirHash-1.5-x86.zip" target="_blank">DirHash Windows 32-Bit Binary</a><br>
+	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.5/DirHash-1.5-x64.zip" target="_blank">DirHash Windows 64-Bit Binary</a><br>
+      <a href="https://github.com/idrassi/DirHash/archive/DirHash_1.5.zip" target="_blank">DirHash Source Code Zip</a><br>
       <a href="https://github.com/idrassi/DirHash" target="_blank">DirHash On GitHub</a><br>
       <a href="https://www.idrix.fr/Root/content/category/7/31/55/" target="_blank">IDRIX Official DirHash page</a><br>
       </font></b></p>
       <p>&nbsp;</p>
+	  <p style="margin-left: 20">
+      <form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="_blank">
+	  <input type="hidden" name="cmd" value="_s-xclick">
+	  <input type="hidden" name="hosted_button_id" value="LC8BZ2XRNPY84">
+	  <input type="image" src="https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif" border="0" name="submit" alt="Donate to DirHash using PayPal">
+	  <img alt="" border="0" src="https://www.paypalobjects.com/fr_FR/i/scr/pixel.gif" width="1" height="1">
+	  </form>
+	  </p>
       <p>&nbsp; </p>
       <p>&nbsp;</p>
       <p>&nbsp; </p>
@@ -37,7 +45,7 @@
         <p><font size="2" face="Arial">DirHash is a Windows console program that computes the hash of a given directory content or a single file. Recursive Lexicographical order is used for browsing the directory hierarchy so that the computed hash can be seen as unique fingerprint of the target directory. Supported hashing algorithms are MD5, SHA-1, SHA-256, SHA-384 and SHA-512.</font></p>
         <p><font face="Arial" size="5">Usage</font></p>
         <p><font size="2" face="Arial">DirHash can be invoked from the command like as follows: <br>
-<p>DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-nowait] [-hashnames] [-exclude pattern1] [-exclude patter2] </p>
+<p>DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName]  [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude patter2] </p>
 
 <p>Possible values for HashAlgo (not case sensitive):</p>
 
@@ -52,6 +60,12 @@
 <p>If <b>HashAlgo</b> is not specified, SHA-1 is used by default.</p>
 
 <p><b>ResultFileName</b> specifies an optional text file where the result will be appended.</p>
+
+<p>if <b>-overwrite</b> is specified (only when -t is present), the output text file will be overwritten instead of having hash result appended to it.</p>
+
+<p>if <b>-quiet</b> is specified, no text is displayed or written to the output file except the hash value.</p>
+
+<p>if <b>-nowait</b> is specified, program will exit immediately after displaying the hash result. Otherwise, it prompts user to hit a key before it exits.</p>
 
 <p>if <b>-nowait</b> is specified, program will exit immediately after displaying the hash result. Otherwise, it prompts user to hit a key before it exits.</p>
 
