@@ -209,7 +209,7 @@ bool IsExcludedName(LPCTSTR szName, list<wstring>& excludeSpecList)
    return false;
 }
 
-DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, list<wstring>& excludeSpecList)
+DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList)
 {
    DWORD dwError = 0;
    FILE* f = NULL;
@@ -220,15 +220,22 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, list<wstring
 
    if (bIncludeNames)
    {
+      LPCTSTR pNameToHash = NULL;
       if (pathLen > MAX_PATH)
-         pHash->Update ((LPBYTE) szFilePath, _tcslen (szFilePath) * sizeof(TCHAR));
+         pNameToHash = szFilePath;
       else
       {
          g_szCanonalizedName[MAX_PATH] = 0;
          if (!PathCanonicalize (g_szCanonalizedName, szFilePath))
             lstrcpy (g_szCanonalizedName, szFilePath);
-         pHash->Update ((LPBYTE) g_szCanonalizedName, _tcslen (g_szCanonalizedName) * sizeof(TCHAR));
+
+         if (bStripNames)
+             pNameToHash = PathFindFileName(g_szCanonalizedName);
+         else
+             pNameToHash = g_szCanonalizedName;  
       }
+
+      pHash->Update ((LPBYTE) pNameToHash, _tcslen (pNameToHash) * sizeof(TCHAR));
    }
 
    f = _tfopen(szFilePath, _T("rb"));
@@ -248,7 +255,7 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, list<wstring
    return dwError;
 }
 
-DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, list<wstring>& excludeSpecList)
+DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList)
 {
    wstring szDir;
    WIN32_FIND_DATA ffd;
@@ -262,15 +269,22 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, list<wst
 
    if (bIncludeNames)
    {
+      LPCTSTR pNameToHash = NULL;
       if (lstrlen(szDirPath) > MAX_PATH)
-         pHash->Update ((LPBYTE) szDirPath, _tcslen (szDirPath) * sizeof(TCHAR));
+         pNameToHash = szDirPath;
       else
       {
          g_szCanonalizedName[MAX_PATH] = 0;
          if (!PathCanonicalize (g_szCanonalizedName, szDirPath))
             lstrcpy (g_szCanonalizedName, szDirPath);
-         pHash->Update ((LPBYTE) g_szCanonalizedName, _tcslen (g_szCanonalizedName) * sizeof(TCHAR));
+
+         if (bStripNames)
+             pNameToHash = PathFindFileName(g_szCanonalizedName);
+         else
+             pNameToHash = g_szCanonalizedName;         
       }
+
+      pHash->Update ((LPBYTE) pNameToHash, _tcslen (pNameToHash) * sizeof(TCHAR));
    }
 
    szDir += szDirPath;
@@ -323,13 +337,13 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, list<wst
    {
       if (it->IsDir())
       {
-         dwError = HashDirectory( it->GetPath(), pHash, bIncludeNames, excludeSpecList);
+         dwError = HashDirectory( it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList);
          if (dwError)
             break;
       }
       else
       {
-         dwError = HashFile(it->GetPath(), pHash, bIncludeNames, excludeSpecList);
+         dwError = HashFile(it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList);
          if (dwError)
             break;
       }
@@ -382,6 +396,7 @@ int _tmain(int argc, _TCHAR* argv[])
    wstring outputFileName;
    bool bDontWait = false;
    bool bIncludeNames = false;
+   bool bStripNames = false;
    bool bQuiet = false;
    bool bOverwrite = false;	
    list<wstring> excludeSpecList;
@@ -437,6 +452,10 @@ int _tmain(int argc, _TCHAR* argv[])
          else if (_tcscmp(argv[i],_T("-hashnames")) == 0)
          {
             bIncludeNames = true;
+         }
+         else if (_tcscmp(argv[i],_T("-stripnames")) == 0)
+         {
+            bStripNames = true;
          }
          else if (_tcscmp(argv[i],_T("-exclude")) == 0)
          {
@@ -502,7 +521,7 @@ int _tmain(int argc, _TCHAR* argv[])
    {
       _tprintf(_T("Using %s to compute hash of \"%s\" ...\n"), 
       pHash->GetID(), 
-      PathFindFileName(argv[1]));
+      bStripNames? PathFindFileName(argv[1]) : argv[1]);
       fflush(stdout);
    }
 
@@ -518,14 +537,14 @@ int _tmain(int argc, _TCHAR* argv[])
          argv[1][pathLen - 1] = 0;
       }
       
-      dwError = HashDirectory(argv[1], pHash, bIncludeNames, excludeSpecList);
+      dwError = HashDirectory(argv[1], pHash, bIncludeNames, bStripNames, excludeSpecList);
 
       // restore backslash
       if (backslash)
          argv[1][pathLen - 1] = backslash;
    }
    else
-      dwError = HashFile(argv[1], pHash, bIncludeNames, excludeSpecList);
+      dwError = HashFile(argv[1], pHash, bIncludeNames, bStripNames, excludeSpecList);
 
    if (dwError == NO_ERROR)
    {
