@@ -56,7 +56,7 @@ class Hash
 {
 public:
    virtual void Init() = 0;
-   virtual void Update(LPBYTE pbData, size_t dwLength) = 0;
+   virtual void Update(LPCBYTE pbData, size_t dwLength) = 0;
    virtual void Final(LPBYTE pbDigest) = 0;
    virtual int GetHashSize() = 0;
    virtual LPCTSTR GetID() = 0;
@@ -74,7 +74,7 @@ public:
    }
 
    void Init() { MD5_Init(&m_ctx);}
-   void Update(LPBYTE pbData, size_t dwLength) { MD5_Update(&m_ctx, pbData, dwLength);}
+   void Update(LPCBYTE pbData, size_t dwLength) { MD5_Update(&m_ctx, pbData, dwLength);}
    void Final(LPBYTE pbDigest) { MD5_Final(pbDigest, &m_ctx);}
    LPCTSTR GetID() { return _T("MD5");}
    int GetHashSize() { return 16;}
@@ -91,7 +91,7 @@ public:
    }
 
    void Init() { SHA1_Init(&m_ctx);}
-   void Update(LPBYTE pbData, size_t dwLength) { SHA1_Update(&m_ctx, pbData, dwLength);}
+   void Update(LPCBYTE pbData, size_t dwLength) { SHA1_Update(&m_ctx, pbData, dwLength);}
    void Final(LPBYTE pbDigest) { SHA1_Final(pbDigest, &m_ctx);}
    LPCTSTR GetID() { return _T("SHA1");}
    int GetHashSize() { return 20;}
@@ -108,7 +108,7 @@ public:
    }
 
    void Init() { SHA256_Init(&m_ctx);}
-   void Update(LPBYTE pbData, size_t dwLength) { SHA256_Update(&m_ctx, pbData, dwLength);}
+   void Update(LPCBYTE pbData, size_t dwLength) { SHA256_Update(&m_ctx, pbData, dwLength);}
    void Final(LPBYTE pbDigest) { SHA256_Final(pbDigest, &m_ctx);}
    LPCTSTR GetID() { return _T("SHA256");}
    int GetHashSize() { return 32;}
@@ -125,7 +125,7 @@ public:
    }
 
    void Init() { SHA384_Init(&m_ctx);}
-   void Update(LPBYTE pbData, size_t dwLength) { SHA384_Update(&m_ctx, pbData, dwLength);}
+   void Update(LPCBYTE pbData, size_t dwLength) { SHA384_Update(&m_ctx, pbData, dwLength);}
    void Final(LPBYTE pbDigest) { SHA384_Final(pbDigest, &m_ctx);}
    LPCTSTR GetID() { return _T("SHA384");}
    int GetHashSize() { return 48;}
@@ -142,7 +142,7 @@ public:
    }
 
    void Init() { SHA512_Init(&m_ctx);}
-   void Update(LPBYTE pbData, size_t dwLength) { SHA512_Update(&m_ctx, pbData, dwLength);}
+   void Update(LPCBYTE pbData, size_t dwLength) { SHA512_Update(&m_ctx, pbData, dwLength);}
    void Final(LPBYTE pbDigest) { SHA512_Final(pbDigest, &m_ctx);}
    LPCTSTR GetID() { return _T("SHA512");}
    int GetHashSize() { return 64;}
@@ -235,7 +235,7 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
              pNameToHash = g_szCanonalizedName;  
       }
 
-      pHash->Update ((LPBYTE) pNameToHash, _tcslen (pNameToHash) * sizeof(TCHAR));
+      pHash->Update ((LPCBYTE) pNameToHash, _tcslen (pNameToHash) * sizeof(TCHAR));
    }
 
    f = _tfopen(szFilePath, _T("rb"));
@@ -284,7 +284,7 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
              pNameToHash = g_szCanonalizedName;         
       }
 
-      pHash->Update ((LPBYTE) pNameToHash, _tcslen (pNameToHash) * sizeof(TCHAR));
+      pHash->Update ((LPCBYTE) pNameToHash, _tcslen (pNameToHash) * sizeof(TCHAR));
    }
 
    szDir += szDirPath;
