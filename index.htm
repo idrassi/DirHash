@@ -19,9 +19,9 @@
   <tr>
     <td width="18%" bgcolor="#33CCCC" valign="top">&nbsp;
       <p style="margin-left: 20"><b><font face="Arial" size="2" color="#000000">
-	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.5/DirHash-1.5-x86.zip" target="_blank">DirHash Windows 32-Bit Binary</a><br>
-	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.5/DirHash-1.5-x64.zip" target="_blank">DirHash Windows 64-Bit Binary</a><br>
-      <a href="https://github.com/idrassi/DirHash/archive/DirHash_1.5.zip" target="_blank">DirHash Source Code Zip</a><br>
+	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.6/DirHash-1.6-x86.zip" target="_blank">DirHash Windows 32-Bit Binary</a><br>
+	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.6/DirHash-1.6-x64.zip" target="_blank">DirHash Windows 64-Bit Binary</a><br>
+      <a href="https://github.com/idrassi/DirHash/archive/DirHash_1.6.zip" target="_blank">DirHash Source Code Zip</a><br>
       <a href="https://github.com/idrassi/DirHash" target="_blank">DirHash On GitHub</a><br>
       <a href="https://www.idrix.fr/Root/content/category/7/31/55/" target="_blank">IDRIX Official DirHash page</a><br>
       </font></b></p>
@@ -45,7 +45,7 @@
         <p><font size="2" face="Arial">DirHash is a Windows console program that computes the hash of a given directory content or a single file. Recursive Lexicographical order is used for browsing the directory hierarchy so that the computed hash can be seen as unique fingerprint of the target directory. Supported hashing algorithms are MD5, SHA-1, SHA-256, SHA-384 and SHA-512.</font></p>
         <p><font face="Arial" size="5">Usage</font></p>
         <p><font size="2" face="Arial">DirHash can be invoked from the command like as follows: <br>
-<p>DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName]  [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude patter2] </p>
+<p>DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName]  [-overwrite]  [-quiet] [-nowait] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] </p>
 
 <p>Possible values for HashAlgo (not case sensitive):</p>
 
@@ -69,7 +69,9 @@
 
 <p>if <b>-nowait</b> is specified, program will exit immediately after displaying the hash result. Otherwise, it prompts user to hit a key before it exits.</p>
 
-<p>if <b>-hashnames</b> is specified, the case sensitive names of the files and directories will be included in the hash computation. Otherwise, only files content is used.</p></p>
+<p>if <b>-hashnames</b> is specified, the case sensitive names of the files and directories will be included in the hash computation. Otherwise, only files content is used.</p>
+
+<p>if <b>-stripnames</b> is specified (only when <b>-hashnames</b> also specified), only the the last path portion of <b>DirectoryOrFilePath</b> is used for hash calculation.</p>
 
 <p>if <b>-exclude</b> is specified, it must be followed by a string indicating the file type that must be excluded from the hash computation. For example, to exclude .log files, you specify "-exclude *.log". This switch can be repeated many times in the command line to specify different file types to exclude.</p></font></p>
 		
@@ -77,7 +79,7 @@
         <p>&nbsp;</p>
         <p>&nbsp;</p>
       </blockquote>
-      <p align="center"><font face="Arial" size="1">© COPYRIGHT 2015 ALL RIGHTS
+      <p align="center"><font face="Arial" size="1">© COPYRIGHT 2016 ALL RIGHTS
       RESERVED Mounir IDRASSI (<a href="https://www.idrix.fr">https://www.idrix.fr</a>)</font></td>
     <td width="21%" bgcolor="#CCFFFF" valign="top">
       <table border="0" width="100%" cellspacing="0" cellpadding="0">
@@ -89,7 +91,7 @@
         <tr>
           <td width="100%" bgcolor="#CCFFFF"><br>
             <font size="2" face="Arial">DirHash source code comes with a Microsoft Visual C++ 2010 project file, but you can use the free Microsoft Visual Studio Community 2013 to build it as well.</font>
-            <p><font size="2" face="Arial">DirHash uses OpenSSL for its cryptographic operations and the source comes with pre-built library files of OpenSSL 1.0.2c<br>
+            <p><font size="2" face="Arial">DirHash uses OpenSSL for its cryptographic operations and the source comes with pre-built library files of OpenSSL 1.0.2g<br>
             &nbsp;</font></td>
         </tr>
       </table>
