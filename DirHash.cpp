@@ -492,6 +492,18 @@ int _tmain(int argc, _TCHAR* argv[])
 
    if (!bQuiet)
       ShowLogo();
+  
+	if (!outputFileName.empty())
+	{
+	 outputFile = _tfopen(outputFileName.c_str(), bOverwrite? _T("wt") : _T("a+t"));
+	 if (!outputFile)
+	 {
+		if (!bQuiet)
+		{
+		   ShowError (_T("!!!Failed to open the result file for writing!!!\n"));
+		}
+	 }
+	}
 
    // Check that the input path plus 3 is not longer than MAX_PATH.
    // Three characters are for the "\*" plus NULL appended below.
@@ -549,18 +561,6 @@ int _tmain(int argc, _TCHAR* argv[])
    if (dwError == NO_ERROR)
    {
       pHash->Final(pbDigest);
-
-      if (!outputFileName.empty())
-      {
-         outputFile = _tfopen(outputFileName.c_str(), bOverwrite? _T("wt") : _T("a+t"));
-         if (!outputFile)
-         {
-            if (!bQuiet)
-            {
-               ShowError (_T("!!!Failed to open the result file for writing!!!\n"));
-            }
-         }
-      }
       
       if (!bQuiet)
       {
