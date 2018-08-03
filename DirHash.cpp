@@ -38,7 +38,9 @@
 #include <openssl/sha.h>
 #include <openssl/md5.h>
 #include <list>
+#ifdef USE_STREEBOG
 #include "Streebog.h"
+#endif
 using namespace std;
 
 
@@ -152,6 +154,7 @@ public:
    int GetHashSize() { return 64;}
 };
 
+#ifdef USE_STREEBOG
 class Streebog : public Hash
 {
 protected:
@@ -168,6 +171,7 @@ public:
    LPCTSTR GetID() { return _T("Streebog");}
    int GetHashSize() { return 64;}
 };
+#endif
 
 Hash* Hash::GetHash(LPCTSTR szHashId)
 {
@@ -191,10 +195,12 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
    {
       return new Md5();
    }
+#ifdef USE_STREEBOG
    if (_tcsicmp(szHashId, _T("Streebog")) == 0)
    {
       return new Streebog();
    }
+#endif
    return NULL;
 }
 
