@@ -32,6 +32,8 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <tchar.h>
+#include <io.h>
+#include <time.h>
 #include <strsafe.h>
 #include <openssl/sha.h>
 #include <openssl/md5.h>
@@ -44,6 +46,7 @@ static BYTE g_pbBuffer[4096];
 static TCHAR g_szCanonalizedName[MAX_PATH + 1];
 static WORD  g_wAttributes = FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED;
 static HANDLE g_hConsole = NULL;
+static CONSOLE_SCREEN_BUFFER_INFO g_originalConsoleInfo;
 
 // Used for sorting directory content
 bool compare_nocase (LPCWSTR first, LPCWSTR second)
@@ -231,7 +234,77 @@ bool IsExcludedName(LPCTSTR szName, list<wstring>& excludeSpecList)
    return false;
 }
 
-DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList)
+// return the file name. If it is too long, it is shortness so that the progress line 
+LPCTSTR GetShortFileName (LPCTSTR szFilePath, unsigned long long fileSize)
+{
+	static TCHAR szShortName[256];
+	size_t l, bufferSize = ARRAYSIZE (szShortName);
+	int maxPrintLen = _scprintf (" [==========] 100.00 %% (%ull/%ull)", fileSize, fileSize); // 10 steps for progress bar
+	LPCTSTR ptr = &szFilePath [_tcslen (szFilePath) - 1];
+
+	// Get file name part from the path
+	while ((ptr != szFilePath) && (*ptr != _T('\\')) && (*ptr != _T('/')))
+	{
+		ptr--;
+	}
+	ptr++;
+
+	// calculate maximum length for file name	
+	bufferSize = (g_originalConsoleInfo.dwSize.X > (maxPrintLen+1))? min (256, (g_originalConsoleInfo.dwSize.X - 1 - maxPrintLen)) : 9;
+
+	l = _tcslen (ptr);
+	if (l < bufferSize)
+		_tcscpy (szShortName, ptr);
+	else
+	{
+		size_t prefixLen = (bufferSize / 2 - 2);
+		size_t suffixLen = bufferSize - prefixLen - 4;
+
+		memcpy (szShortName, ptr, prefixLen * sizeof (TCHAR));
+		memcpy (((unsigned char*) szShortName) + prefixLen * sizeof (TCHAR), _T("..."), 3 * sizeof (TCHAR));
+		memcpy (((unsigned char*) szShortName) + (prefixLen + 3)* sizeof (TCHAR), ptr + (l - suffixLen), suffixLen * sizeof (TCHAR));
+		szShortName [bufferSize - 1] = 0;
+	}
+	return szShortName;
+}
+
+void DisplayProgress (LPCTSTR szFileName, unsigned long long currentSize, unsigned long long fileSize, clock_t startTime, clock_t &lastBlockTime)
+{
+	clock_t t = clock ();
+	if (lastBlockTime == 0 || currentSize == fileSize || ((t - lastBlockTime) >= CLOCKS_PER_SEC))
+	{
+		unsigned long long maxPos = 10ull;
+		unsigned long long pos = (currentSize * maxPos) / fileSize;
+		double pourcentage = ((double) currentSize / (double) fileSize) * 100.0;
+
+		lastBlockTime = t;
+	
+		_tprintf (_T("\r%s ["), szFileName);
+		for (unsigned long long i = 0; i < maxPos; i++)
+		{
+			if (i < pos)
+				_tprintf (_T("="));
+			else
+				_tprintf (_T(" "));
+		}
+		_tprintf (_T("] %.2f %% (%llu/%llu)"), pourcentage, currentSize, fileSize);
+
+		_tprintf (_T("\r"));
+	}
+}
+
+void ClearProgress ()
+{
+	_tprintf (_T("\r"));
+	for (int i = 0; i < g_originalConsoleInfo.dwSize.X - 1; i++)
+	{
+		_tprintf (_T(" "));
+	}
+
+	_tprintf (_T("\r"));
+}
+
+DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress)
 {
    DWORD dwError = 0;
    FILE* f = NULL;
@@ -264,8 +337,23 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
    if(f)
    {
       size_t len;
+	  bShowProgress = !bQuiet && bShowProgress;
+	  unsigned long long fileSize = bShowProgress? (unsigned long long) _filelengthi64 ( _fileno (f)) : 0;
+	  unsigned long long currentSize = 0;
+	  clock_t startTime = bShowProgress? clock () : 0;
+	  clock_t lastBlockTime = 0;
+	  LPCTSTR szFileName = bShowProgress? GetShortFileName (szFilePath, fileSize) : NULL;
+
       while (  (len = fread(g_pbBuffer, 1, sizeof(g_pbBuffer), f)) != 0)
+	  {
+		 currentSize += (unsigned long long) len;
          pHash->Update(g_pbBuffer, len);
+		 if (bShowProgress)
+			DisplayProgress (szFileName, currentSize, fileSize, startTime, lastBlockTime);
+	  }
+
+	  if (bShowProgress)
+		ClearProgress ();
 
       fclose(f);
    }
@@ -277,7 +365,7 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
    return dwError;
 }
 
-DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList)
+DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress)
 {
    wstring szDir;
    WIN32_FIND_DATA ffd;
@@ -359,13 +447,13 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
    {
       if (it->IsDir())
       {
-         dwError = HashDirectory( it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList);
+         dwError = HashDirectory( it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress);
          if (dwError)
             break;
       }
       else
       {
-         dwError = HashFile(it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList);
+         dwError = HashFile(it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress);
          if (dwError)
             break;
       }
@@ -384,7 +472,7 @@ void ShowLogo()
 void ShowUsage()
 {
    ShowLogo();
-   _tprintf(TEXT("Usage: DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-clip] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n\n  Possible values for HashAlgo (not case sensitive, default is SHA1):\n  MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n  ResultFileName: text file where the result will be appended\n\n  -clip: copy the result to Windows clipboard\n\n  -overwrite (only when -t present): output text file will be overwritten\n\n  -quiet: No text is displayed or written except the hash value\n\n  -nowait: avoid displaying the waiting prompt before exiting\n\n  -hashnames: file names will be included in hash computation\n\n  -exclude specifies a name pattern for files to exclude from hash computation.\n\n"));
+   _tprintf(TEXT("Usage: DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-clip] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n\n  Possible values for HashAlgo (not case sensitive, default is SHA1):\n  MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n  ResultFileName: text file where the result will be appended\n\n  -clip: copy the result to Windows clipboard\n\n  -progress: Display information about the progress of hash operation\n\n  -overwrite (only when -t present): output text file will be overwritten\n\n  -quiet: No text is displayed or written except the hash value\n\n  -nowait: avoid displaying the waiting prompt before exiting\n\n  -hashnames: file names will be included in hash computation\n\n  -exclude specifies a name pattern for files to exclude from hash computation.\n\n"));
 }
 
 void ShowError(LPCTSTR szMsg, ...)
@@ -474,17 +562,17 @@ int _tmain(int argc, _TCHAR* argv[])
    bool bQuiet = false;
    bool bOverwrite = false;	
    bool bCopyToClipboard = false;
+   bool bShowProgress = false;
    list<wstring> excludeSpecList;
-   g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-   CONSOLE_SCREEN_BUFFER_INFO originalConsoleInfo;
+   g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);   
 
    // get original console attributes
-   if (GetConsoleScreenBufferInfo(g_hConsole, &originalConsoleInfo))
-      g_wAttributes = originalConsoleInfo.wAttributes;
+   if (GetConsoleScreenBufferInfo(g_hConsole, &g_originalConsoleInfo))
+      g_wAttributes = g_originalConsoleInfo.wAttributes;
 
    setbuf (stdout, NULL);
 
-   SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2018"));   
+   SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2018"));
 
    if (argc < 2)
    {
@@ -550,6 +638,10 @@ int _tmain(int argc, _TCHAR* argv[])
          else if (_tcscmp(argv[i], _T("-clip")) == 0)
          {
             bCopyToClipboard = true;
+         }
+         else if (_tcscmp(argv[i], _T("-progress")) == 0)
+         {
+            bShowProgress = true;
          }
          else
          {
@@ -628,14 +720,14 @@ int _tmain(int argc, _TCHAR* argv[])
          argv[1][pathLen - 1] = 0;
       }
       
-      dwError = HashDirectory(argv[1], pHash, bIncludeNames, bStripNames, excludeSpecList);
+      dwError = HashDirectory(argv[1], pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress);
 
       // restore backslash
       if (backslash)
          argv[1][pathLen - 1] = backslash;
    }
    else
-      dwError = HashFile(argv[1], pHash, bIncludeNames, bStripNames, excludeSpecList);
+      dwError = HashFile(argv[1], pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress);
 
    if (dwError == NO_ERROR)
    {
