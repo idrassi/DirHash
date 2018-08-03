@@ -384,7 +384,7 @@ void ShowLogo()
 void ShowUsage()
 {
    ShowLogo();
-   _tprintf(TEXT("Usage: DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n\n  Possible values for HashAlgo (not case sensitive, default is SHA1):\n  MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n  ResultFileName: text file where the result will be appended\n\n  -overwrite (only when -t present): output text file will be overwritten\n\n  -quiet: No text is displayed or written except the hash value\n\n  -nowait: avoid displaying the waiting prompt before exiting\n\n  -hashnames: file names will be included in hash computation\n\n  -exclude specifies a name pattern for files to exclude from hash computation.\n\n"));
+   _tprintf(TEXT("Usage: DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-clip] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n\n  Possible values for HashAlgo (not case sensitive, default is SHA1):\n  MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n  ResultFileName: text file where the result will be appended\n\n  -clip: copy the result to Windows clipboard\n\n  -overwrite (only when -t present): output text file will be overwritten\n\n  -quiet: No text is displayed or written except the hash value\n\n  -nowait: avoid displaying the waiting prompt before exiting\n\n  -hashnames: file names will be included in hash computation\n\n  -exclude specifies a name pattern for files to exclude from hash computation.\n\n"));
 }
 
 void ShowError(LPCTSTR szMsg, ...)
@@ -406,10 +406,62 @@ void WaitForExit(bool bDontWait = false)
    }
 }
 
+void CopyToClipboard (LPCTSTR szDigestHex)
+{
+	if (OpenClipboard(NULL))
+	{
+		size_t cch = _tcslen (szDigestHex);
+
+		HGLOBAL hglbCopy = GlobalAlloc(GMEM_MOVEABLE, 
+			(cch + 1) * sizeof(TCHAR)); 
+		if (hglbCopy)
+		{
+			EmptyClipboard ();
+
+			// Lock the handle and copy the text to the buffer. 
+			LPVOID lptstrCopy = GlobalLock(hglbCopy); 
+			memcpy(lptstrCopy, (const TCHAR*) szDigestHex, 
+				(cch * sizeof(TCHAR)) + 1); 
+			GlobalUnlock(hglbCopy); 
+ 
+			// Place the handle on the clipboard. 
+#ifdef _UNICODE
+			SetClipboardData(CF_UNICODETEXT, hglbCopy);
+#else
+			SetClipboardData(CF_TEXT, hglbCopy);
+#endif
+		}
+
+		CloseClipboard(); 
+	}
+}
+
+TCHAR ToHex(unsigned char b)
+{
+	if (b >= 0 && b <= 9)
+		return _T('0') + b;
+	else if (b >= 10 && b <= 15)
+		return _T('A') + b - 10;
+	else
+		return _T('X');
+}
+
+void ToHex(LPBYTE pbData, int iLen, LPTSTR szHex)
+{
+	unsigned char b;
+	for (int i=0; i < iLen; i++)
+	{
+		b = *pbData++;
+		*szHex++ = ToHex(b >> 4);
+		*szHex++ = ToHex(b & 0x0F);
+	}
+	*szHex = 0;
+}
 
 int _tmain(int argc, _TCHAR* argv[])
 {
    BYTE pbDigest[128];
+   TCHAR szDigestHex[257];
    size_t length_of_arg;
    HANDLE hFind = INVALID_HANDLE_VALUE;
    DWORD dwError=0;
@@ -421,6 +473,7 @@ int _tmain(int argc, _TCHAR* argv[])
    bool bStripNames = false;
    bool bQuiet = false;
    bool bOverwrite = false;	
+   bool bCopyToClipboard = false;
    list<wstring> excludeSpecList;
    g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
    CONSOLE_SCREEN_BUFFER_INFO originalConsoleInfo;
@@ -493,6 +546,10 @@ int _tmain(int argc, _TCHAR* argv[])
             excludeSpecList.push_back(argv[i+1]);
 
             i++;
+         }
+         else if (_tcscmp(argv[i], _T("-clip")) == 0)
+         {
+            bCopyToClipboard = true;
          }
          else
          {
@@ -599,11 +656,13 @@ int _tmain(int argc, _TCHAR* argv[])
       // display hash in yellow
       SetConsoleTextAttribute (g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
 
-      for (int i=0; i < pHash->GetHashSize(); i++)
-      {
-         _tprintf(_T("%.2X"), pbDigest[i]);
-         if (outputFile) _ftprintf(outputFile, _T("%.2X"), pbDigest[i]);
-      }
+	  ToHex (pbDigest, pHash->GetHashSize(), szDigestHex);
+
+	  _tprintf(szDigestHex);
+      if (outputFile) _ftprintf(outputFile, szDigestHex);
+
+	  if (bCopyToClipboard)
+		CopyToClipboard (szDigestHex);
 
       // restore normal text color
       SetConsoleTextAttribute (g_hConsole, g_wAttributes);
