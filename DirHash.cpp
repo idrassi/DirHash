@@ -3,7 +3,7 @@
  * for sorting. Based on OpenSSL for hash algorithms in order to support all versions
  * of Windows from 2000 to 7 without relying on the presence of any specific CSP.
  *
- * Copyright (c) 2010-2015 Mounir IDRASSI <mounir.idrassi@idrix.fr>. All rights reserved.
+ * Copyright (c) 2010-2018 Mounir IDRASSI <mounir.idrassi@idrix.fr>. All rights reserved.
  *
  * This program is distributed in the hope that it will be useful, 
  * but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY 
@@ -36,6 +36,7 @@
 #include <openssl/sha.h>
 #include <openssl/md5.h>
 #include <list>
+#include "Streebog.h"
 using namespace std;
 
 
@@ -148,6 +149,23 @@ public:
    int GetHashSize() { return 64;}
 };
 
+class Streebog : public Hash
+{
+protected:
+   STREEBOG_CTX m_ctx;
+public:
+   Streebog() : Hash() 
+   {
+      STREEBOG_init(&m_ctx);
+   }
+
+   void Init() { STREEBOG_init(&m_ctx);}
+   void Update(LPCBYTE pbData, size_t dwLength) { STREEBOG_add(&m_ctx, pbData, dwLength);}
+   void Final(LPBYTE pbDigest) { STREEBOG_finalize(&m_ctx, pbDigest);}
+   LPCTSTR GetID() { return _T("Streebog");}
+   int GetHashSize() { return 64;}
+};
+
 Hash* Hash::GetHash(LPCTSTR szHashId)
 {
    if (!szHashId || (_tcsicmp(szHashId, _T("SHA1")) == 0))
@@ -169,6 +187,10 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
    if (_tcsicmp(szHashId, _T("MD5")) == 0)
    {
       return new Md5();
+   }
+   if (_tcsicmp(szHashId, _T("Streebog")) == 0)
+   {
+      return new Streebog();
    }
    return NULL;
 }
@@ -355,14 +377,14 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 void ShowLogo()
 {
    SetConsoleTextAttribute (g_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-   _tprintf(_T("\nDirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2015\n\nRecursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\nSupported Algorithms : MD5, SHA1, SHA256, SHA384, SHA512\nUsing OpenSSL\n\n"));
+   _tprintf(_T("\nDirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2018\n\nRecursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\nSupported Algorithms : MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\nUsing OpenSSL\n\n"));
    SetConsoleTextAttribute (g_hConsole, g_wAttributes);
 }
 
 void ShowUsage()
 {
    ShowLogo();
-   _tprintf(TEXT("Usage: DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n\n  Possible values for HashAlgo (not case sensitive, default is SHA1):\n  MD5, SHA1, SHA256, SHA384, SHA512\n\n  ResultFileName: text file where the result will be appended\n\n  -overwrite (only when -t present): output text file will be overwritten\n\n  -quiet: No text is displayed or written except the hash value\n\n  -nowait: avoid displaying the waiting prompt before exiting\n\n  -hashnames: file names will be included in hash computation\n\n  -exclude specifies a name pattern for files to exclude from hash computation.\n\n"));
+   _tprintf(TEXT("Usage: DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n\n  Possible values for HashAlgo (not case sensitive, default is SHA1):\n  MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n  ResultFileName: text file where the result will be appended\n\n  -overwrite (only when -t present): output text file will be overwritten\n\n  -quiet: No text is displayed or written except the hash value\n\n  -nowait: avoid displaying the waiting prompt before exiting\n\n  -hashnames: file names will be included in hash computation\n\n  -exclude specifies a name pattern for files to exclude from hash computation.\n\n"));
 }
 
 void ShowError(LPCTSTR szMsg, ...)
@@ -409,7 +431,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
    setbuf (stdout, NULL);
 
-   SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2015"));   
+   SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2018"));   
 
    if (argc < 2)
    {

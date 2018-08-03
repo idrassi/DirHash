@@ -163,10 +163,17 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="cpu.c" />
     <ClCompile Include="DirHash.cpp" />
+    <ClCompile Include="Streebog.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="config.h" />
+    <ClInclude Include="cpu.h" />
+    <ClInclude Include="defs.h" />
+    <ClInclude Include="misc.h" />
     <ClInclude Include="resource.h" />
+    <ClInclude Include="Streebog.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="DirHash.rc" />
