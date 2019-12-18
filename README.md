@@ -2,7 +2,7 @@
 Windows command line utility to compute hash of directories and files
 =====================================================================
 
-Copyright (c) 2015 Mounir IDRASSI
+Copyright (c) 2015-2019 Mounir IDRASSI
 mounir@idrix.fr
 
 3-clause BSD license ("New BSD License")
@@ -12,7 +12,7 @@ Home page: https://idrassi.github.io/DirHash/
 Usage
 ------------
 
-DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-clip] [-overwrite] [-quiet] [-nowait] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] 
+DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-clip] [-overwrite] [-quiet] [-nowait] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] 
 
 Possible values for HashAlgo (not case sensitive):
 - MD5
@@ -26,7 +26,9 @@ If HashAlgo is not specified, SHA-1 is used by default.
 
 ResultFileName specifies an optional text file where the result will be appended.
 
-If -clip is specified, the hash result is copied to Windows clipboard.
+if -sum is specified, program will output the hash of every file processed in a format similar to shasum.
+
+if -clip is specified, the hash result is copied to Windows clipboard. This switch is ignored when -sum is specified.
 
 If -progress is specified, information about the progress of file hash operation is displayed.
 
