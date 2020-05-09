@@ -12,7 +12,7 @@
 */
 
 #ifndef _WIN32_WINNT
-#define _WIN32_WINNT 0x0500
+#define _WIN32_WINNT 0x0501 // Windows XP is minimum supported OS
 #endif
 
 /* We use UNICODE */
@@ -24,10 +24,35 @@
 #define _UNICODE
 #endif
 
+#ifndef ALG_SID_SHA_256
+#define ALG_SID_SHA_256                 12
+#endif
+
+#ifndef ALG_SID_SHA_384
+#define ALG_SID_SHA_384                 13
+#endif
+
+#ifndef ALG_SID_SHA_512
+#define ALG_SID_SHA_512                 14
+#endif
+
+#ifndef CALG_SHA_256
+#define CALG_SHA_256            (ALG_CLASS_HASH | ALG_TYPE_ANY | ALG_SID_SHA_256)
+#endif
+
+#ifndef CALG_SHA_384
+#define CALG_SHA_384            (ALG_CLASS_HASH | ALG_TYPE_ANY | ALG_SID_SHA_384)
+#endif
+
+#ifndef CALG_SHA_512
+#define CALG_SHA_512            (ALG_CLASS_HASH | ALG_TYPE_ANY | ALG_SID_SHA_512)
+#endif
+
 #define _CRT_SECURE_NO_WARNINGS
 #pragma warning(disable : 4995)
 
 #include <windows.h>
+#include <WinCrypt.h>
 #include <Shlwapi.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -53,6 +78,8 @@ static BYTE pbDigest[128];
 static TCHAR szDigestHex[257];
 static FILE* outputFile = NULL;
 static bool g_bLowerCase = false;
+static bool g_bUseCAPI = false;
+static LPCTSTR g_szMsProvider = MS_ENH_RSA_AES_PROV;
 
 // Used for sorting directory content
 bool compare_nocase (LPCWSTR first, LPCWSTR second)
@@ -92,6 +119,9 @@ public:
 	virtual void Final(LPBYTE pbDigest) = 0;
 	virtual int GetHashSize() = 0;
 	virtual LPCTSTR GetID() = 0;
+	virtual bool IsValid () const { return true;}
+	virtual bool UsesCAPI () const { return false;}
+	static bool IsHashId (LPCTSTR szHashId);
 	static Hash* GetHash(LPCTSTR szHashId);
 };
 
@@ -199,32 +229,196 @@ public:
 };
 #endif
 
+class CapiHash : public Hash
+{
+protected:
+	HCRYPTPROV m_prov;
+	HCRYPTHASH m_hash;
+	ALG_ID m_algId;
+public:
+	CapiHash(ALG_ID algId) : Hash(), m_prov (NULL), m_hash (NULL), m_algId (algId)
+	{
+		Init ();
+	}
+
+	virtual ~CapiHash ()
+	{
+		Clear ();
+	}
+
+	void Clear ()
+	{
+		if (m_hash)
+			CryptDestroyHash (m_hash);
+		if (m_prov)
+			CryptReleaseContext (m_prov, 0);
+	}
+
+	virtual bool IsValid () const { return (m_hash != NULL); }
+	virtual bool UsesCAPI () const { return true;}
+
+	virtual void Init() { 
+		if (CryptAcquireContext (&m_prov, NULL, g_szMsProvider, PROV_RSA_AES, CRYPT_SILENT | CRYPT_VERIFYCONTEXT))
+		{
+			CryptCreateHash (m_prov, m_algId, NULL, 0, &m_hash);
+		}
+	}
+
+	virtual void Update(LPCBYTE pbData, size_t dwLength) { 
+		if (IsValid())
+			CryptHashData (m_hash, pbData, (DWORD) dwLength, 0);
+	}
+
+	virtual void Final(LPBYTE pbDigest) {
+		if (IsValid())
+		{
+			DWORD dwHashLen = (DWORD) GetHashSize();
+			CryptGetHashParam (m_hash, HP_HASHVAL, pbDigest, &dwHashLen, 0);
+		}
+	}
+};
+
+
+class Md5Capi : public CapiHash
+{
+public:
+	Md5Capi() : CapiHash(CALG_MD5)
+	{
+
+	}
+
+	~Md5Capi ()
+	{
+	}
+
+	LPCTSTR GetID() { return _T("MD5");}
+	int GetHashSize() { return 16;}
+};
+
+class Sha1Capi : public CapiHash
+{
+public:
+	Sha1Capi() : CapiHash(CALG_SHA1)
+	{
+
+	}
+
+	~Sha1Capi ()
+	{
+	}
+
+	LPCTSTR GetID() { return _T("SHA1");}
+	int GetHashSize() { return 16;}
+};
+
+class Sha256Capi : public CapiHash
+{
+public:
+	Sha256Capi() : CapiHash(CALG_SHA_256)
+	{
+
+	}
+
+	~Sha256Capi ()
+	{
+	}
+
+	LPCTSTR GetID() { return _T("SHA256");}
+	int GetHashSize() { return 32;}
+};
+
+class Sha384Capi : public CapiHash
+{
+public:
+	Sha384Capi() : CapiHash(CALG_SHA_384)
+	{
+
+	}
+
+	~Sha384Capi ()
+	{
+	}
+
+	LPCTSTR GetID() { return _T("SHA384");}
+	int GetHashSize() { return 48;}
+};
+
+class Sha512Capi : public CapiHash
+{
+public:
+	Sha512Capi() : CapiHash(CALG_SHA_512)
+	{
+
+	}
+
+	~Sha512Capi ()
+	{
+	}
+
+	LPCTSTR GetID() { return _T("SHA512");}
+	int GetHashSize() { return 64;}
+};
+
+bool Hash::IsHashId (LPCTSTR szHashId)
+{
+	if (	(_tcsicmp(szHashId, _T("SHA1")) == 0) 
+		||	(_tcsicmp(szHashId, _T("SHA256")) == 0)
+		||	(_tcsicmp(szHashId, _T("SHA384")) == 0)
+		||	(_tcsicmp(szHashId, _T("SHA512")) == 0)
+		||	(_tcsicmp(szHashId, _T("MD5")) == 0)
+		||	(_tcsicmp(szHashId, _T("Streebog")) == 0)
+		)
+	{
+		return true;
+	}
+	else
+		return false;
+}
+
 Hash* Hash::GetHash(LPCTSTR szHashId)
 {
 	if (!szHashId || (_tcsicmp(szHashId, _T("SHA1")) == 0))
 	{
-		return new Sha1();
+		if (g_bUseCAPI)
+			return new Sha1Capi();
+		else
+			return new Sha1();
 	}
 	if (_tcsicmp(szHashId, _T("SHA256")) == 0)
 	{
-		return new Sha256();
+		if (g_bUseCAPI)
+			return new Sha256Capi();
+		else
+			return new Sha256();
 	}
 	if (_tcsicmp(szHashId, _T("SHA384")) == 0)
 	{
-		return new Sha384();
+		if (g_bUseCAPI)
+			return new Sha384Capi();
+		else
+			return new Sha384();
 	}
 	if (_tcsicmp(szHashId, _T("SHA512")) == 0)
 	{
-		return new Sha512();
+		if (g_bUseCAPI)
+			return new Sha512Capi();
+		else
+			return new Sha512();
 	}
 	if (_tcsicmp(szHashId, _T("MD5")) == 0)
 	{
-		return new Md5();
+		if (g_bUseCAPI)
+			return new Md5Capi();
+		else
+			return new Md5();
 	}
 #ifdef USE_STREEBOG
 	if (_tcsicmp(szHashId, _T("Streebog")) == 0)
 	{
-		return new Streebog();
+		if (g_bUseCAPI)
+			return NULL;
+		else
+			return new Streebog();
 	}
 #endif
 	return NULL;
@@ -593,6 +787,18 @@ int _tmain(int argc, _TCHAR* argv[])
 	bool bShowProgress = false;
 	bool bSumMode = false; 
 	list<wstring> excludeSpecList;
+	OSVERSIONINFO osvi;
+    bool bIsWindowsX = false;
+
+    ZeroMemory(&osvi, sizeof(OSVERSIONINFO));
+    osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
+
+    GetVersionEx(&osvi);
+	bIsWindowsX = ( (osvi.dwMajorVersion == 5) && (osvi.dwMinorVersion == 1) );
+
+	if (bIsWindowsX)
+		g_szMsProvider = MS_ENH_RSA_AES_PROV_XP;
+
 	g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);   
 
 	// get original console attributes
@@ -680,23 +886,41 @@ int _tmain(int argc, _TCHAR* argv[])
 			{
 				g_bLowerCase = true;
 			}
-			else
+			else if (_tcscmp(argv[i], _T("-mscrypto")) == 0)
+			{
+				g_bUseCAPI = true;
+			}
+			else if (Hash::IsHashId (argv[i]))
 			{
 				pHash = Hash::GetHash(argv[i]);
 				if (!pHash)
 				{
-					if (outputFile) fclose(outputFile);               
-					ShowUsage();
-					ShowError(_T("Error: Argument \"%s\" not recognized\n"), argv[i]);
+					if (outputFile) fclose(outputFile);
+					ShowError(_T("Error: Failed to use the hash algorithm \"%s\"\n"), argv[i]);
 					WaitForExit(bDontWait);
 					return 1;
 				}
+			}
+			else
+			{
+				if (outputFile) fclose(outputFile);
+				ShowUsage();
+				ShowError(_T("Error: Argument \"%s\" not recognized\n"), argv[i]);
+				WaitForExit(bDontWait);
+				return 1;
 			}
 		}
 	}
 
 	if (!pHash)
 		pHash = new Sha1();
+	else if (g_bUseCAPI && !pHash->UsesCAPI())
+	{
+		// recreate the hash instance to use Crypto API implementation
+		Hash* pCapiHash = Hash::GetHash (pHash->GetID());
+		delete pHash;
+		pHash = pCapiHash;
+	}
 
 	if (!bQuiet)
 		ShowLogo();
