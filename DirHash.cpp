@@ -52,6 +52,7 @@ static CONSOLE_SCREEN_BUFFER_INFO g_originalConsoleInfo;
 static BYTE pbDigest[128];
 static TCHAR szDigestHex[257];
 static FILE* outputFile = NULL;
+static bool g_bLowerCase = false;
 
 // Used for sorting directory content
 bool compare_nocase (LPCWSTR first, LPCWSTR second)
@@ -64,9 +65,9 @@ TCHAR ToHex(unsigned char b)
 	if (b >= 0 && b <= 9)
 		return _T('0') + b;
 	else if (b >= 10 && b <= 15)
-		return _T('A') + b - 10;
+		return (g_bLowerCase? _T('a'):_T('A')) + b - 10;
 	else
-		return _T('X');
+		return (g_bLowerCase? _T('x') : _T('X'));
 }
 
 void ToHex(LPBYTE pbData, int iLen, LPTSTR szHex)
@@ -674,6 +675,10 @@ int _tmain(int argc, _TCHAR* argv[])
 			else if (_tcscmp(argv[i], _T("-progress")) == 0)
 			{
 				bShowProgress = true;
+			}
+			else if (_tcscmp(argv[i], _T("-lowercase")) == 0)
+			{
+				g_bLowerCase = true;
 			}
 			else
 			{
