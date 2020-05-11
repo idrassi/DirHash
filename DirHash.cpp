@@ -64,8 +64,11 @@
 #include <io.h>
 #include <time.h>
 #include <strsafe.h>
+#if !defined (_M_ARM64) && !defined (_M_ARM)
 #include <openssl/sha.h>
 #include <openssl/md5.h>
+#endif
+#include <string>
 #include <list>
 #ifdef USE_STREEBOG
 #include "Streebog.h"
@@ -131,6 +134,7 @@ public:
 	static Hash* GetHash(LPCTSTR szHashId);
 };
 
+#if !defined (_M_ARM64) && !defined (_M_ARM)
 class Md5 : public Hash
 {
 protected:
@@ -215,6 +219,7 @@ public:
 	LPCTSTR GetID() { return _T("SHA512");}
 	int GetHashSize() { return 64;}
 };
+#endif
 
 #ifdef USE_STREEBOG
 class Streebog : public Hash
@@ -553,8 +558,10 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 			else
 				return new Sha1Capi();
 		}
+#if !defined (_M_ARM64) && !defined (_M_ARM)
 		else
 			return new Sha1();
+#endif
 	}
 	if (_tcsicmp(szHashId, _T("SHA256")) == 0)
 	{
@@ -565,8 +572,10 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 			else
 				return new Sha256Capi();
 		}
+#if !defined (_M_ARM64) && !defined (_M_ARM)
 		else
 			return new Sha256();
+#endif
 	}
 	if (_tcsicmp(szHashId, _T("SHA384")) == 0)
 	{
@@ -577,8 +586,10 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 			else
 				return new Sha384Capi();
 		}
+#if !defined (_M_ARM64) && !defined (_M_ARM)
 		else
 			return new Sha384();
+#endif
 	}
 	if (_tcsicmp(szHashId, _T("SHA512")) == 0)
 	{
@@ -589,8 +600,10 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 			else
 				return new Sha512Capi();
 		}
+#if !defined (_M_ARM64) && !defined (_M_ARM)
 		else
 			return new Sha512();
+#endif
 	}
 	if (_tcsicmp(szHashId, _T("MD5")) == 0)
 	{
@@ -601,16 +614,15 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 			else
 				return new Md5Capi();
 		}
+#if !defined (_M_ARM64) && !defined (_M_ARM)
 		else
 			return new Md5();
+#endif
 	}
 #ifdef USE_STREEBOG
 	if (_tcsicmp(szHashId, _T("Streebog")) == 0)
 	{
-		if (g_bUseMsCrypto)
-			return NULL;
-		else
-			return new Streebog();
+		return new Streebog();
 	}
 #endif
 	return NULL;
@@ -657,7 +669,7 @@ LPCTSTR GetShortFileName (LPCTSTR szFilePath, unsigned long long fileSize)
 {
 	static TCHAR szShortName[256];
 	size_t l, bufferSize = ARRAYSIZE (szShortName);
-	int maxPrintLen = _scprintf (" [==========] 100.00 %% (%ull/%ull)", fileSize, fileSize); // 10 steps for progress bar
+	int maxPrintLen = _scprintf (" [==========] 100.00 %% (%llu/%llu)", fileSize, fileSize); // 10 steps for progress bar
 	LPCTSTR ptr = &szFilePath [_tcslen (szFilePath) - 1];
 
 	// Get file name part from the path
@@ -904,7 +916,7 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 void ShowLogo()
 {
 	SetConsoleTextAttribute (g_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-	_tprintf(_T("\nDirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2019\n\nRecursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\nSupported Algorithms : MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\nUsing OpenSSL\n\n"));
+	_tprintf(_T("\nDirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2020\n\nRecursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\nSupported Algorithms : MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n"));
 	SetConsoleTextAttribute (g_hConsole, g_wAttributes);
 }
 
@@ -1027,6 +1039,12 @@ int _tmain(int argc, _TCHAR* argv[])
 	list<wstring> excludeSpecList;
 	OSVERSIONINFO osvi;
     bool bIsWindowsX = false;
+	wstring hashAlgoToUse = L"SHA1";
+
+#if defined (_M_ARM64) || defined (_M_ARM)
+	// we always use Windows native crypto on ARM platform because OpenSSL is not optimized for such platforms
+	g_bUseMsCrypto = true;
+#endif
 
     ZeroMemory(&osvi, sizeof(OSVERSIONINFO));
     osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
@@ -1132,14 +1150,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			}
 			else if (Hash::IsHashId (argv[i]))
 			{
-				pHash = Hash::GetHash(argv[i]);
-				if (!pHash)
-				{
-					if (outputFile) fclose(outputFile);
-					ShowError(_T("Error: Failed to use the hash algorithm \"%s\"\n"), argv[i]);
-					WaitForExit(bDontWait);
-					return 1;
-				}
+				hashAlgoToUse = argv[i];
 			}
 			else
 			{
@@ -1152,14 +1163,14 @@ int _tmain(int argc, _TCHAR* argv[])
 		}
 	}
 
-	if (!pHash)
-		pHash = new Sha1();
-	else if (g_bUseMsCrypto && !pHash->UsesMSCrypto())
+	pHash = Hash::GetHash(hashAlgoToUse.c_str());
+	if (!pHash || !pHash->IsValid())
 	{
-		// recreate the hash instance to use Crypto API implementation
-		Hash* pMsCryptoHash = Hash::GetHash (pHash->GetID());
-		delete pHash;
-		pHash = pMsCryptoHash;
+		if (outputFile) fclose(outputFile);
+		if (pHash) delete pHash;
+		ShowError(_T("Error: Failed to initialize the hash algorithm \"%s\"\n"), hashAlgoToUse.c_str());
+		WaitForExit(bDontWait);
+		return 1;
 	}
 
 	if (!bQuiet)

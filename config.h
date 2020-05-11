@@ -113,7 +113,7 @@
     #define CRYPTOPP_X64_ASM_AVAILABLE
 #endif
 
-#if !defined(CRYPTOPP_DISABLE_SSE2) && (defined(CRYPTOPP_MSVC6PP_OR_LATER) || defined(__SSE2__)) && !defined(_M_ARM)
+#if !defined(CRYPTOPP_DISABLE_SSE2) && (defined(CRYPTOPP_MSVC6PP_OR_LATER) || defined(__SSE2__)) && !defined(_M_ARM) && !defined(_M_ARM64)
     #define CRYPTOPP_BOOL_SSE2_INTRINSICS_AVAILABLE 1
 #else
     #define CRYPTOPP_BOOL_SSE2_INTRINSICS_AVAILABLE 0
