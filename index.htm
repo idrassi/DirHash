@@ -19,9 +19,10 @@
   <tr>
     <td width="21%" bgcolor="#33CCCC" valign="top">&nbsp;
       <p style="margin-left: 20"><b><font face="Arial" size="2" color="#000000">
-	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.8.0/DirHash-1.8.0-x86.zip" target="_blank">DirHash Windows 32-Bit Binary</a><br>
-	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.8.0/DirHash-1.8.0-x64.zip" target="_blank">DirHash Windows 64-Bit Binary</a><br>
-      <a href="https://github.com/idrassi/DirHash/archive/DirHash_1.8.0.zip" target="_blank">DirHash Source Code Zip</a><br>
+	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.9.0/DirHash-1.9.0-x86.zip" target="_blank">DirHash Windows 32-Bit Binary</a><br>
+	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.9.0/DirHash-1.9.0-x64.zip" target="_blank">DirHash Windows 64-Bit Binary</a><br>
+	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.9.0/DirHash-1.9.0-arm64.zip" target="_blank">DirHash Windows ARM64 Binary</a><br>
+      <a href="https://github.com/idrassi/DirHash/archive/DirHash_1.9.0.zip" target="_blank">DirHash Source Code Zip</a><br>
       <a href="https://github.com/idrassi/DirHash" target="_blank">DirHash On GitHub</a><br>
       <a href="https://www.idrix.fr/Root/content/category/7/31/55/" target="_blank">IDRIX Official DirHash page</a><br>
       </font></b></p>
@@ -43,7 +44,7 @@
         <p><font face="Arial" size="5">Usage</font></p>
         <p><font size="2" face="Arial">DirHash can be invoked from the command like as follows: <br>
 <p>DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName]  [-progress] [-sum] [-clip] [-overwrite]  [-quiet] [-nowait] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] </p>
-
+<p>DirHash.exe -benchmark [HashAlgo] [-t ResultFileName] [-clip] [-overwrite]  [-quiet] [-nowait] </p>
 <p>Possible values for HashAlgo (not case sensitive):</p>
 
 <ul>
@@ -59,9 +60,15 @@
 
 <p><b>ResultFileName</b> specifies an optional text file where the result will be appended.</p>
 
+<p>if <b>-benchmark</b> is specified, program will perform speed benchmark of the selected hash algorithm</p>
+
+<p>if <b>-mscrypto</b> specified, program will use Windows native implementation of hash algorithms (This is always enabled on Windows ARM platforms since OpenSSL is too slow on them).</p>
+
 <p>if <b>-sum</b> is specified, program will output the hash of every file processed in a format similar to shasum.</p>
 
 <p>if <b>-clip</b> is specified, the hash result is copied to Windows clipboard. This switch is ignored when -sum is specified.</p>
+
+<p>if <b>-lowercase</b> is specified, program outputs hash value(s) in lower case instead of upper case.</p>
 
 <p>if <b>-progress</b> is specified, information about the progress of file hash operation is displayed.</p>
 
@@ -83,7 +90,7 @@
         <p>&nbsp;</p>
         <p>&nbsp;</p>
       </blockquote>
-      <p align="center"><font face="Arial" size="1">© COPYRIGHT 2019 ALL RIGHTS
+      <p align="center"><font face="Arial" size="1">© COPYRIGHT 2020 ALL RIGHTS
       RESERVED Mounir IDRASSI (<a href="https://www.idrix.fr">https://www.idrix.fr</a>)</font></td>
     <td width="18%" bgcolor="#CCFFFF" valign="top">
       <table border="0" width="100%" cellspacing="0" cellpadding="0">
@@ -94,8 +101,8 @@
       <table border="0" width="100%" cellspacing="0" cellpadding="0">
         <tr>
           <td width="100%" bgcolor="#CCFFFF"><br>
-            <font size="2" face="Arial">DirHash source code comes with a Microsoft Visual C++ 2010 project file, but you can use the free Microsoft Visual Studio Community Edition to build it as well.</font>
-            <p><font size="2" face="Arial">DirHash uses OpenSSL for its cryptographic operations and the source comes with pre-built library files of OpenSSL 1.0.2o<br>
+            <font size="2" face="Arial">DirHash uses OpenSSL for its cryptographic operations on x86 and x64 platforms and the source comes with pre-built library files of OpenSSL 1.0.2u. On Windows ARM64 platforms (for example Microsoft Surface Pro X), DirHash uses Windows native implementation for hash algorithms since OpenSSL is not optimized for Windows ARM64 platform.<br>
+            <font size="2" face="Arial">DirHash source code comes with a Microsoft Visual Studio 2019 solution file but it requires Visual Studio 2010 to build WIN32 and x64 targets. This was done in order to make DirHash still support earlier versions of Windows (XP for example). In order to use VS 2019 for all targets, OpenSSL libraries must be rebuilt using VS 2019. </font><br>
             &nbsp;</font></td>
         </tr>
       </table>
