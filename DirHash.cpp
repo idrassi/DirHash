@@ -923,7 +923,25 @@ void ShowLogo()
 void ShowUsage()
 {
 	ShowLogo();
-	_tprintf(TEXT("Usage: DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-sum] [-clip] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n\n  Possible values for HashAlgo (not case sensitive, default is SHA1):\n  MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n  ResultFileName: text file where the result will be appended\n\n  -sum: output hash of every file processed in a format similar to shasum.\n\n  -clip: copy the result to Windows clipboard (ignored when -sum specified)\n\n  -progress: Display information about the progress of hash operation\n\n  -overwrite (only when -t present): output text file will be overwritten\n\n  -quiet: No text is displayed or written except the hash value\n\n  -nowait: avoid displaying the waiting prompt before exiting\n\n  -hashnames: file names will be included in hash computation\n\n  -exclude specifies a name pattern for files to exclude from hash computation.\n\n"));
+	_tprintf(	TEXT("Usage: \n")
+				TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n")
+				TEXT("  DirHash.exe -benchmark [HashAlgo] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait]\n")
+				TEXT("\n")
+				TEXT("  Possible values for HashAlgo (not case sensitive, default is SHA1):\n")
+				TEXT("  MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n")
+				TEXT("  ResultFileName: text file where the result will be appended\n")
+				TEXT("  -benchmark: perform speed benchmark of the selected algoithm\n")
+				TEXT("  -mscrypto: use Windows native implementation of hash algorithms (Always enabled on ARM).\n")
+				TEXT("  -sum: output hash of every file processed in a format similar to shasum.\n")
+				TEXT("  -clip: copy the result to Windows clipboard (ignored when -sum specified)\n")
+				TEXT("  -lowercase: output hash value(s) in lower case instead of upper case\n")
+				TEXT("  -progress: Display information about the progress of hash operation\n")
+				TEXT("  -overwrite (only when -t present): output text file will be overwritten\n")
+				TEXT("  -quiet: No text is displayed or written except the hash value\n")
+				TEXT("  -nowait: avoid displaying the waiting prompt before exiting\n")
+				TEXT("  -hashnames: file names will be included in hash computation\n")
+				TEXT("  -exclude specifies a name pattern for files to exclude from hash computation.\n")
+	);
 }
 
 void ShowError(LPCTSTR szMsg, ...)
@@ -975,7 +993,7 @@ void CopyToClipboard (LPCTSTR szDigestHex)
 	}
 }
 
-void BenchmarkAlgo (LPCTSTR hashAlgo)
+void BenchmarkAlgo (LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard)
 {
 	#define BENCH_BUFFER_SIZE 50 * 1024 * 1024
 	#define BENCH_LOOPS 50
@@ -999,13 +1017,33 @@ void BenchmarkAlgo (LPCTSTR hashAlgo)
 
 		double speed = ((double) BENCH_BUFFER_SIZE * (double) BENCH_LOOPS) / ((double)(t2 - t1) / (double) CLOCKS_PER_SEC);
 		if (speed >= (double) (1024 * 1024 * 1024))
-			_tprintf (_T("%s speed = %f GiB/s\n"), hashAlgo, (speed / (double) (1024 * 1024 * 1024)));
+			StringCbPrintf ((TCHAR*) pbData, BENCH_BUFFER_SIZE, _T("%s speed = %f GiB/s"), hashAlgo, (speed / (double) (1024 * 1024 * 1024)));
 		else if (speed >= (double) (1024 * 1024))
-			_tprintf (_T("%s speed = %f MiB/s\n"), hashAlgo, (speed / (double) (1024 * 1024)));
+			StringCbPrintf((TCHAR*)pbData, BENCH_BUFFER_SIZE, _T("%s speed = %f MiB/s"), hashAlgo, (speed / (double) (1024 * 1024)));
 		else if (speed >= (double) (1024))
-			_tprintf (_T("%s speed = %f KiB/s\n"), hashAlgo, (speed / (double) (1024)));
+			StringCbPrintf((TCHAR*)pbData, BENCH_BUFFER_SIZE, _T("%s speed = %f KiB/s"), hashAlgo, (speed / (double) (1024)));
 		else
-			_tprintf (_T("%s speed = %f B/s\n"), hashAlgo, speed);
+			StringCbPrintf((TCHAR*)pbData, BENCH_BUFFER_SIZE, _T("%s speed = %f B/s"), hashAlgo, speed);
+
+		// display hash in yellow
+		SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
+
+		ToHex(pbDigest, pHash->GetHashSize(), szDigestHex);
+
+		if (!bQuiet)
+		{
+			if (outputFile)
+			{
+				_ftprintf(outputFile, _T("%s\n"), (TCHAR*)pbData);
+			}
+			_tprintf(_T("%s\n"), (TCHAR*)pbData);
+		}
+
+		if (bCopyToClipboard)
+			CopyToClipboard((TCHAR*)pbData);
+
+		// restore normal text color
+		SetConsoleTextAttribute(g_hConsole, g_wAttributes);
 
 		delete pHash;
 		delete [] pbData;
@@ -1016,9 +1054,9 @@ void BenchmarkAlgo (LPCTSTR hashAlgo)
 	}
 }
 
-void PerformBenchmark (Hash* pHash)
+void PerformBenchmark (Hash* pHash, bool bQuiet, bool bCopyToClipboard)
 {
-	BenchmarkAlgo (pHash->GetID());
+	BenchmarkAlgo (pHash->GetID(), bQuiet, bCopyToClipboard);
 }
 
 int _tmain(int argc, _TCHAR* argv[])
@@ -1040,6 +1078,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	OSVERSIONINFO osvi;
     bool bIsWindowsX = false;
 	wstring hashAlgoToUse = L"SHA1";
+	bool bBenchmarkOp = false;
 
 #if defined (_M_ARM64) || defined (_M_ARM)
 	// we always use Windows native crypto on ARM platform because OpenSSL is not optimized for such platforms
@@ -1074,6 +1113,9 @@ int _tmain(int argc, _TCHAR* argv[])
 		return 1;
 	}
 
+	if (_tcscmp(argv[1], _T("-benchmark")) == 0)
+		bBenchmarkOp = true;
+
 	if (argc >= 3)
 	{
 		for (int i = 2; i < argc; i++)
@@ -1107,18 +1149,46 @@ int _tmain(int argc, _TCHAR* argv[])
 			}
 			else if (_tcscmp(argv[i],_T("-hashnames")) == 0)
 			{
+				if (bBenchmarkOp)
+				{
+					ShowUsage();
+					ShowError(_T("Error: -hashnames can not be combined with -benchmark\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
 				bIncludeNames = true;
 			}
 			else if (_tcscmp(argv[i],_T("-stripnames")) == 0)
 			{
+				if (bBenchmarkOp)
+				{
+					ShowUsage();
+					ShowError(_T("Error: -stripnames can not be combined with -benchmark\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
 				bStripNames = true;
 			}
 			else if (_tcscmp(argv[i],_T("-sum")) == 0)
 			{
+				if (bBenchmarkOp)
+				{
+					ShowUsage();
+					ShowError(_T("Error: -sum can not be combined with -benchmark\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
 				bSumMode = true;
 			}
 			else if (_tcscmp(argv[i],_T("-exclude")) == 0)
 			{
+				if (bBenchmarkOp)
+				{
+					ShowUsage();
+					ShowError(_T("Error: -exclude can not be combined with -benchmark\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
 				if ((i + 1) >= argc)
 				{
 					// missing file argument               
@@ -1138,10 +1208,24 @@ int _tmain(int argc, _TCHAR* argv[])
 			}
 			else if (_tcscmp(argv[i], _T("-progress")) == 0)
 			{
+				if (bBenchmarkOp)
+				{
+					ShowUsage();
+					ShowError(_T("Error: -progress can not be combined with -benchmark\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
 				bShowProgress = true;
 			}
 			else if (_tcscmp(argv[i], _T("-lowercase")) == 0)
 			{
+				if (bBenchmarkOp)
+				{
+					ShowUsage();
+					ShowError(_T("Error: -lowercase can not be combined with -benchmark\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
 				g_bLowerCase = true;
 			}
 			else if (_tcscmp(argv[i], _T("-mscrypto")) == 0)
@@ -1188,10 +1272,10 @@ int _tmain(int argc, _TCHAR* argv[])
 		}
 	}
 
-	if (_tcscmp(argv[1],_T("-benchmark")) == 0)
+	if (bBenchmarkOp)
 	{
 
-		PerformBenchmark (pHash);
+		PerformBenchmark (pHash, bQuiet, bCopyToClipboard);
 
 		delete pHash;
 
