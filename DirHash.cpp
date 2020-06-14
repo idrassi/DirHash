@@ -5,10 +5,10 @@
 *
 * Copyright (c) 2010-2018 Mounir IDRASSI <mounir.idrassi@idrix.fr>. All rights reserved.
 *
-* This program is distributed in the hope that it will be useful, 
-* but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY 
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
 * or FITNESS FOR A PARTICULAR PURPOSE.
-* 
+*
 */
 
 #ifndef _WIN32_WINNT
@@ -90,7 +90,7 @@ static bool g_bCngAvailable = false;
 static LPCTSTR g_szMsProvider = MS_ENH_RSA_AES_PROV;
 
 // Used for sorting directory content
-bool compare_nocase (LPCWSTR first, LPCWSTR second)
+bool compare_nocase(LPCWSTR first, LPCWSTR second)
 {
 	return _wcsicmp(first, second) < 0;
 }
@@ -100,21 +100,43 @@ TCHAR ToHex(unsigned char b)
 	if (b >= 0 && b <= 9)
 		return _T('0') + b;
 	else if (b >= 10 && b <= 15)
-		return (g_bLowerCase? _T('a'):_T('A')) + b - 10;
+		return (g_bLowerCase ? _T('a') : _T('A')) + b - 10;
 	else
-		return (g_bLowerCase? _T('x') : _T('X'));
+		return (g_bLowerCase ? _T('x') : _T('X'));
 }
 
 void ToHex(LPBYTE pbData, int iLen, LPTSTR szHex)
 {
 	unsigned char b;
-	for (int i=0; i < iLen; i++)
+	for (int i = 0; i < iLen; i++)
 	{
 		b = *pbData++;
 		*szHex++ = ToHex(b >> 4);
 		*szHex++ = ToHex(b & 0x0F);
 	}
 	*szHex = 0;
+}
+
+typedef  NTSTATUS(WINAPI* RtlGetVersionFn)(
+	PRTL_OSVERSIONINFOW lpVersionInformation);
+
+BOOL GetWindowsVersion(OSVERSIONINFOW* pOSversion)
+{
+	BOOL bRet = FALSE;
+	HMODULE h = LoadLibrary(TEXT("ntdll.dll"));
+	if (h != NULL)
+	{
+		RtlGetVersionFn pRtlGetVersion = (RtlGetVersionFn)GetProcAddress(h, "RtlGetVersion");
+		if (pRtlGetVersion != NULL)
+		{
+			if (NO_ERROR == pRtlGetVersion((PRTL_OSVERSIONINFOW)pOSversion))
+				bRet = TRUE;
+		}
+
+		FreeLibrary(h);
+	}
+
+	return bRet;
 }
 
 // ---------------------------------------------
@@ -127,10 +149,10 @@ public:
 	virtual void Final(LPBYTE pbDigest) = 0;
 	virtual int GetHashSize() = 0;
 	virtual LPCTSTR GetID() = 0;
-	virtual bool IsValid () const { return true;}
-	virtual bool UsesMSCrypto () const { return false;}
-	virtual Hash* Clone () { return GetHash (GetID ());}
-	static bool IsHashId (LPCTSTR szHashId);
+	virtual bool IsValid() const { return true; }
+	virtual bool UsesMSCrypto() const { return false; }
+	virtual Hash* Clone() { return GetHash(GetID()); }
+	static bool IsHashId(LPCTSTR szHashId);
 	static Hash* GetHash(LPCTSTR szHashId);
 };
 
@@ -140,16 +162,16 @@ class Md5 : public Hash
 protected:
 	MD5_CTX m_ctx;
 public:
-	Md5() : Hash() 
+	Md5() : Hash()
 	{
 		MD5_Init(&m_ctx);
 	}
 
-	void Init() { MD5_Init(&m_ctx);}
-	void Update(LPCBYTE pbData, size_t dwLength) { MD5_Update(&m_ctx, pbData, dwLength);}
-	void Final(LPBYTE pbDigest) { MD5_Final(pbDigest, &m_ctx);}
-	LPCTSTR GetID() { return _T("MD5");}
-	int GetHashSize() { return 16;}
+	void Init() { MD5_Init(&m_ctx); }
+	void Update(LPCBYTE pbData, size_t dwLength) { MD5_Update(&m_ctx, pbData, dwLength); }
+	void Final(LPBYTE pbDigest) { MD5_Final(pbDigest, &m_ctx); }
+	LPCTSTR GetID() { return _T("MD5"); }
+	int GetHashSize() { return 16; }
 };
 
 class Sha1 : public Hash
@@ -157,16 +179,16 @@ class Sha1 : public Hash
 protected:
 	SHA_CTX m_ctx;
 public:
-	Sha1() : Hash() 
+	Sha1() : Hash()
 	{
 		SHA1_Init(&m_ctx);
 	}
 
-	void Init() { SHA1_Init(&m_ctx);}
-	void Update(LPCBYTE pbData, size_t dwLength) { SHA1_Update(&m_ctx, pbData, dwLength);}
-	void Final(LPBYTE pbDigest) { SHA1_Final(pbDigest, &m_ctx);}
-	LPCTSTR GetID() { return _T("SHA1");}
-	int GetHashSize() { return 20;}
+	void Init() { SHA1_Init(&m_ctx); }
+	void Update(LPCBYTE pbData, size_t dwLength) { SHA1_Update(&m_ctx, pbData, dwLength); }
+	void Final(LPBYTE pbDigest) { SHA1_Final(pbDigest, &m_ctx); }
+	LPCTSTR GetID() { return _T("SHA1"); }
+	int GetHashSize() { return 20; }
 };
 
 class Sha256 : public Hash
@@ -174,16 +196,16 @@ class Sha256 : public Hash
 protected:
 	SHA256_CTX m_ctx;
 public:
-	Sha256() : Hash() 
+	Sha256() : Hash()
 	{
 		SHA256_Init(&m_ctx);
 	}
 
-	void Init() { SHA256_Init(&m_ctx);}
-	void Update(LPCBYTE pbData, size_t dwLength) { SHA256_Update(&m_ctx, pbData, dwLength);}
-	void Final(LPBYTE pbDigest) { SHA256_Final(pbDigest, &m_ctx);}
-	LPCTSTR GetID() { return _T("SHA256");}
-	int GetHashSize() { return 32;}
+	void Init() { SHA256_Init(&m_ctx); }
+	void Update(LPCBYTE pbData, size_t dwLength) { SHA256_Update(&m_ctx, pbData, dwLength); }
+	void Final(LPBYTE pbDigest) { SHA256_Final(pbDigest, &m_ctx); }
+	LPCTSTR GetID() { return _T("SHA256"); }
+	int GetHashSize() { return 32; }
 };
 
 class Sha384 : public Hash
@@ -191,16 +213,16 @@ class Sha384 : public Hash
 protected:
 	SHA512_CTX m_ctx;
 public:
-	Sha384() : Hash() 
+	Sha384() : Hash()
 	{
 		SHA384_Init(&m_ctx);
 	}
 
-	void Init() { SHA384_Init(&m_ctx);}
-	void Update(LPCBYTE pbData, size_t dwLength) { SHA384_Update(&m_ctx, pbData, dwLength);}
-	void Final(LPBYTE pbDigest) { SHA384_Final(pbDigest, &m_ctx);}
-	LPCTSTR GetID() { return _T("SHA384");}
-	int GetHashSize() { return 48;}
+	void Init() { SHA384_Init(&m_ctx); }
+	void Update(LPCBYTE pbData, size_t dwLength) { SHA384_Update(&m_ctx, pbData, dwLength); }
+	void Final(LPBYTE pbDigest) { SHA384_Final(pbDigest, &m_ctx); }
+	LPCTSTR GetID() { return _T("SHA384"); }
+	int GetHashSize() { return 48; }
 };
 
 class Sha512 : public Hash
@@ -208,16 +230,16 @@ class Sha512 : public Hash
 protected:
 	SHA512_CTX m_ctx;
 public:
-	Sha512() : Hash() 
+	Sha512() : Hash()
 	{
 		SHA512_Init(&m_ctx);
 	}
 
-	void Init() { SHA512_Init(&m_ctx);}
-	void Update(LPCBYTE pbData, size_t dwLength) { SHA512_Update(&m_ctx, pbData, dwLength);}
-	void Final(LPBYTE pbDigest) { SHA512_Final(pbDigest, &m_ctx);}
-	LPCTSTR GetID() { return _T("SHA512");}
-	int GetHashSize() { return 64;}
+	void Init() { SHA512_Init(&m_ctx); }
+	void Update(LPCBYTE pbData, size_t dwLength) { SHA512_Update(&m_ctx, pbData, dwLength); }
+	void Final(LPBYTE pbDigest) { SHA512_Final(pbDigest, &m_ctx); }
+	LPCTSTR GetID() { return _T("SHA512"); }
+	int GetHashSize() { return 64; }
 };
 #endif
 
@@ -227,16 +249,16 @@ class Streebog : public Hash
 protected:
 	STREEBOG_CTX m_ctx;
 public:
-	Streebog() : Hash() 
+	Streebog() : Hash()
 	{
 		STREEBOG_init(&m_ctx);
-	}
+}
 
-	void Init() { STREEBOG_init(&m_ctx);}
-	void Update(LPCBYTE pbData, size_t dwLength) { STREEBOG_add(&m_ctx, pbData, dwLength);}
-	void Final(LPBYTE pbDigest) { STREEBOG_finalize(&m_ctx, pbDigest);}
-	LPCTSTR GetID() { return _T("Streebog");}
-	int GetHashSize() { return 64;}
+	void Init() { STREEBOG_init(&m_ctx); }
+	void Update(LPCBYTE pbData, size_t dwLength) { STREEBOG_add(&m_ctx, pbData, dwLength); }
+	void Final(LPBYTE pbDigest) { STREEBOG_finalize(&m_ctx, pbDigest); }
+	LPCTSTR GetID() { return _T("Streebog"); }
+	int GetHashSize() { return 64; }
 };
 #endif
 
@@ -249,49 +271,49 @@ protected:
 	ULONG m_cbHashObject;
 	unsigned char* m_pbHashObject;
 public:
-	CngHash (LPCWSTR wszAlg) : Hash (), m_hAlg (NULL), m_hash (NULL), m_wszAlg (NULL), m_pbHashObject (NULL), m_cbHashObject (0)
+	CngHash(LPCWSTR wszAlg) : Hash(), m_hAlg(NULL), m_hash(NULL), m_wszAlg(NULL), m_pbHashObject(NULL), m_cbHashObject(0)
 	{
-		m_wszAlg = _wcsdup (wszAlg);
-		Init ();
+		m_wszAlg = _wcsdup(wszAlg);
+		Init();
 	}
 
-	virtual ~CngHash ()
+	virtual ~CngHash()
 	{
-		Clear ();
+		Clear();
 		if (m_wszAlg)
-			free (m_wszAlg);
+			free(m_wszAlg);
 	}
 
-	void Clear ()
+	void Clear()
 	{
 		if (m_hash)
-			BCryptDestroyHash (m_hash);
+			BCryptDestroyHash(m_hash);
 		if (m_hAlg)
-			BCryptCloseAlgorithmProvider (m_hAlg, 0);
+			BCryptCloseAlgorithmProvider(m_hAlg, 0);
 		if (m_pbHashObject)
-			delete [] m_pbHashObject;
+			delete[] m_pbHashObject;
 		m_pbHashObject = NULL;
 		m_cbHashObject = 0;
 		m_hash = NULL;
 		m_hAlg = NULL;
 	}
 
-	virtual bool IsValid () const { return (m_hash != NULL); }
-	virtual bool UsesMSCrypto () const { return true;}
+	virtual bool IsValid() const { return (m_hash != NULL); }
+	virtual bool UsesMSCrypto() const { return true; }
 
-	virtual void Init() { 
-		Clear ();
-		if (STATUS_SUCCESS == BCryptOpenAlgorithmProvider (&m_hAlg, m_wszAlg, MS_PRIMITIVE_PROVIDER, 0))
+	virtual void Init() {
+		Clear();
+		if (STATUS_SUCCESS == BCryptOpenAlgorithmProvider(&m_hAlg, m_wszAlg, MS_PRIMITIVE_PROVIDER, 0))
 		{
-			DWORD dwValue, count= sizeof (DWORD);
-			if (STATUS_SUCCESS ==  BCryptGetProperty (m_hAlg, BCRYPT_OBJECT_LENGTH , (PUCHAR) &dwValue, count, &count, 0))
+			DWORD dwValue, count = sizeof(DWORD);
+			if (STATUS_SUCCESS == BCryptGetProperty(m_hAlg, BCRYPT_OBJECT_LENGTH, (PUCHAR)&dwValue, count, &count, 0))
 			{
 				m_cbHashObject = dwValue;
 				m_pbHashObject = new unsigned char[dwValue];
-				if (STATUS_SUCCESS != BCryptCreateHash (m_hAlg, &m_hash, m_pbHashObject, m_cbHashObject, NULL, 0, 0))
+				if (STATUS_SUCCESS != BCryptCreateHash(m_hAlg, &m_hash, m_pbHashObject, m_cbHashObject, NULL, 0, 0))
 				{
 					m_cbHashObject = 0;
-					delete [] m_pbHashObject;
+					delete[] m_pbHashObject;
 					m_pbHashObject = NULL;
 				}
 			}
@@ -299,22 +321,22 @@ public:
 
 		if (!m_pbHashObject)
 		{
-			Clear ();
+			Clear();
 		}
 	}
 
-	virtual void Update(LPCBYTE pbData, size_t dwLength) { 
+	virtual void Update(LPCBYTE pbData, size_t dwLength) {
 		if (IsValid())
-		{			
-			BCryptHashData (m_hash, (PUCHAR) pbData, (ULONG) dwLength, 0);
+		{
+			BCryptHashData(m_hash, (PUCHAR)pbData, (ULONG)dwLength, 0);
 		}
 	}
 
 	virtual void Final(LPBYTE pbDigest) {
 		if (IsValid())
 		{
-			ULONG dwHashLen = (ULONG) GetHashSize();
-			BCryptFinishHash (m_hash, pbDigest, dwHashLen, 0);
+			ULONG dwHashLen = (ULONG)GetHashSize();
+			BCryptFinishHash(m_hash, pbDigest, dwHashLen, 0);
 		}
 	}
 };
@@ -327,12 +349,12 @@ public:
 
 	}
 
-	~Md5Cng ()
+	~Md5Cng()
 	{
 	}
 
-	LPCTSTR GetID() { return _T("MD5");}
-	int GetHashSize() { return 16;}
+	LPCTSTR GetID() { return _T("MD5"); }
+	int GetHashSize() { return 16; }
 };
 
 class Sha1Cng : public CngHash
@@ -343,12 +365,12 @@ public:
 
 	}
 
-	~Sha1Cng ()
+	~Sha1Cng()
 	{
 	}
 
-	LPCTSTR GetID() { return _T("SHA1");}
-	int GetHashSize() { return 20;}
+	LPCTSTR GetID() { return _T("SHA1"); }
+	int GetHashSize() { return 20; }
 };
 
 class Sha256Cng : public CngHash
@@ -359,12 +381,12 @@ public:
 
 	}
 
-	~Sha256Cng ()
+	~Sha256Cng()
 	{
 	}
 
-	LPCTSTR GetID() { return _T("SHA256");}
-	int GetHashSize() { return 32;}
+	LPCTSTR GetID() { return _T("SHA256"); }
+	int GetHashSize() { return 32; }
 };
 
 class Sha384Cng : public CngHash
@@ -375,12 +397,12 @@ public:
 
 	}
 
-	~Sha384Cng ()
+	~Sha384Cng()
 	{
 	}
 
-	LPCTSTR GetID() { return _T("SHA384");}
-	int GetHashSize() { return 48;}
+	LPCTSTR GetID() { return _T("SHA384"); }
+	int GetHashSize() { return 48; }
 };
 
 class Sha512Cng : public CngHash
@@ -391,12 +413,12 @@ public:
 
 	}
 
-	~Sha512Cng ()
+	~Sha512Cng()
 	{
 	}
 
-	LPCTSTR GetID() { return _T("SHA512");}
-	int GetHashSize() { return 64;}
+	LPCTSTR GetID() { return _T("SHA512"); }
+	int GetHashSize() { return 64; }
 };
 
 class CapiHash : public Hash
@@ -406,46 +428,46 @@ protected:
 	HCRYPTHASH m_hash;
 	ALG_ID m_algId;
 public:
-	CapiHash(ALG_ID algId) : Hash(), m_prov (NULL), m_hash (NULL), m_algId (algId)
+	CapiHash(ALG_ID algId) : Hash(), m_prov(NULL), m_hash(NULL), m_algId(algId)
 	{
-		Init ();
+		Init();
 	}
 
-	virtual ~CapiHash ()
+	virtual ~CapiHash()
 	{
-		Clear ();
+		Clear();
 	}
 
-	void Clear ()
+	void Clear()
 	{
 		if (m_hash)
-			CryptDestroyHash (m_hash);
+			CryptDestroyHash(m_hash);
 		if (m_prov)
-			CryptReleaseContext (m_prov, 0);
+			CryptReleaseContext(m_prov, 0);
 		m_hash = NULL;
 		m_prov = NULL;
 	}
 
-	virtual bool IsValid () const { return (m_hash != NULL); }
-	virtual bool UsesMSCrypto () const { return true;}
+	virtual bool IsValid() const { return (m_hash != NULL); }
+	virtual bool UsesMSCrypto() const { return true; }
 
-	virtual void Init() { 
-		if (CryptAcquireContext (&m_prov, NULL, g_szMsProvider, PROV_RSA_AES, CRYPT_SILENT | CRYPT_VERIFYCONTEXT))
+	virtual void Init() {
+		if (CryptAcquireContext(&m_prov, NULL, g_szMsProvider, PROV_RSA_AES, CRYPT_SILENT | CRYPT_VERIFYCONTEXT))
 		{
-			CryptCreateHash (m_prov, m_algId, NULL, 0, &m_hash);
+			CryptCreateHash(m_prov, m_algId, NULL, 0, &m_hash);
 		}
 	}
 
-	virtual void Update(LPCBYTE pbData, size_t dwLength) { 
+	virtual void Update(LPCBYTE pbData, size_t dwLength) {
 		if (IsValid())
-			CryptHashData (m_hash, pbData, (DWORD) dwLength, 0);
+			CryptHashData(m_hash, pbData, (DWORD)dwLength, 0);
 	}
 
 	virtual void Final(LPBYTE pbDigest) {
 		if (IsValid())
 		{
-			DWORD dwHashLen = (DWORD) GetHashSize();
-			CryptGetHashParam (m_hash, HP_HASHVAL, pbDigest, &dwHashLen, 0);
+			DWORD dwHashLen = (DWORD)GetHashSize();
+			CryptGetHashParam(m_hash, HP_HASHVAL, pbDigest, &dwHashLen, 0);
 		}
 	}
 };
@@ -459,12 +481,12 @@ public:
 
 	}
 
-	~Md5Capi ()
+	~Md5Capi()
 	{
 	}
 
-	LPCTSTR GetID() { return _T("MD5");}
-	int GetHashSize() { return 16;}
+	LPCTSTR GetID() { return _T("MD5"); }
+	int GetHashSize() { return 16; }
 };
 
 class Sha1Capi : public CapiHash
@@ -475,12 +497,12 @@ public:
 
 	}
 
-	~Sha1Capi ()
+	~Sha1Capi()
 	{
 	}
 
-	LPCTSTR GetID() { return _T("SHA1");}
-	int GetHashSize() { return 20;}
+	LPCTSTR GetID() { return _T("SHA1"); }
+	int GetHashSize() { return 20; }
 };
 
 class Sha256Capi : public CapiHash
@@ -491,12 +513,12 @@ public:
 
 	}
 
-	~Sha256Capi ()
+	~Sha256Capi()
 	{
 	}
 
-	LPCTSTR GetID() { return _T("SHA256");}
-	int GetHashSize() { return 32;}
+	LPCTSTR GetID() { return _T("SHA256"); }
+	int GetHashSize() { return 32; }
 };
 
 class Sha384Capi : public CapiHash
@@ -507,12 +529,12 @@ public:
 
 	}
 
-	~Sha384Capi ()
+	~Sha384Capi()
 	{
 	}
 
-	LPCTSTR GetID() { return _T("SHA384");}
-	int GetHashSize() { return 48;}
+	LPCTSTR GetID() { return _T("SHA384"); }
+	int GetHashSize() { return 48; }
 };
 
 class Sha512Capi : public CapiHash
@@ -523,22 +545,22 @@ public:
 
 	}
 
-	~Sha512Capi ()
+	~Sha512Capi()
 	{
 	}
 
-	LPCTSTR GetID() { return _T("SHA512");}
-	int GetHashSize() { return 64;}
+	LPCTSTR GetID() { return _T("SHA512"); }
+	int GetHashSize() { return 64; }
 };
 
-bool Hash::IsHashId (LPCTSTR szHashId)
+bool Hash::IsHashId(LPCTSTR szHashId)
 {
-	if (	(_tcsicmp(szHashId, _T("SHA1")) == 0) 
-		||	(_tcsicmp(szHashId, _T("SHA256")) == 0)
-		||	(_tcsicmp(szHashId, _T("SHA384")) == 0)
-		||	(_tcsicmp(szHashId, _T("SHA512")) == 0)
-		||	(_tcsicmp(szHashId, _T("MD5")) == 0)
-		||	(_tcsicmp(szHashId, _T("Streebog")) == 0)
+	if ((_tcsicmp(szHashId, _T("SHA1")) == 0)
+		|| (_tcsicmp(szHashId, _T("SHA256")) == 0)
+		|| (_tcsicmp(szHashId, _T("SHA384")) == 0)
+		|| (_tcsicmp(szHashId, _T("SHA512")) == 0)
+		|| (_tcsicmp(szHashId, _T("MD5")) == 0)
+		|| (_tcsicmp(szHashId, _T("Streebog")) == 0)
 		)
 	{
 		return true;
@@ -554,7 +576,7 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 		if (g_bUseMsCrypto)
 		{
 			if (g_bCngAvailable)
-				return new Sha1Cng ();
+				return new Sha1Cng();
 			else
 				return new Sha1Capi();
 		}
@@ -568,7 +590,7 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 		if (g_bUseMsCrypto)
 		{
 			if (g_bCngAvailable)
-				return new Sha256Cng ();
+				return new Sha256Cng();
 			else
 				return new Sha256Capi();
 		}
@@ -576,13 +598,13 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 		else
 			return new Sha256();
 #endif
-	}
+		}
 	if (_tcsicmp(szHashId, _T("SHA384")) == 0)
 	{
 		if (g_bUseMsCrypto)
 		{
 			if (g_bCngAvailable)
-				return new Sha384Cng ();
+				return new Sha384Cng();
 			else
 				return new Sha384Capi();
 		}
@@ -590,13 +612,13 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 		else
 			return new Sha384();
 #endif
-	}
+		}
 	if (_tcsicmp(szHashId, _T("SHA512")) == 0)
 	{
 		if (g_bUseMsCrypto)
 		{
 			if (g_bCngAvailable)
-				return new Sha512Cng ();
+				return new Sha512Cng();
 			else
 				return new Sha512Capi();
 		}
@@ -604,7 +626,7 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 		else
 			return new Sha512();
 #endif
-	}
+		}
 	if (_tcsicmp(szHashId, _T("MD5")) == 0)
 	{
 		if (g_bUseMsCrypto)
@@ -618,7 +640,7 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 		else
 			return new Md5();
 #endif
-	}
+		}
 #ifdef USE_STREEBOG
 	if (_tcsicmp(szHashId, _T("Streebog")) == 0)
 	{
@@ -648,16 +670,16 @@ public:
 
 	CDirContent(const CDirContent& content) : m_bIsDir(content.m_bIsDir), m_szPath(content.m_szPath) {}
 
-	bool IsDir() const { return m_bIsDir;}
-	LPCWSTR GetPath() const { return m_szPath.c_str();}
-	operator LPCWSTR () { return m_szPath.c_str();}
+	bool IsDir() const { return m_bIsDir; }
+	LPCWSTR GetPath() const { return m_szPath.c_str(); }
+	operator LPCWSTR () { return m_szPath.c_str(); }
 };
 
 bool IsExcludedName(LPCTSTR szName, list<wstring>& excludeSpecList)
 {
 	for (list<wstring>::iterator It = excludeSpecList.begin(); It != excludeSpecList.end(); It++)
 	{
-		if (PathMatchSpec (szName, It->c_str()))
+		if (PathMatchSpec(szName, It->c_str()))
 			return true;
 	}
 
@@ -665,12 +687,12 @@ bool IsExcludedName(LPCTSTR szName, list<wstring>& excludeSpecList)
 }
 
 // return the file name. If it is too long, it is shortness so that the progress line 
-LPCTSTR GetShortFileName (LPCTSTR szFilePath, unsigned long long fileSize)
+LPCTSTR GetShortFileName(LPCTSTR szFilePath, unsigned long long fileSize)
 {
 	static TCHAR szShortName[256];
-	size_t l, bufferSize = ARRAYSIZE (szShortName);
-	int maxPrintLen = _scprintf (" [==========] 100.00 %% (%llu/%llu)", fileSize, fileSize); // 10 steps for progress bar
-	LPCTSTR ptr = &szFilePath [_tcslen (szFilePath) - 1];
+	size_t l, bufferSize = ARRAYSIZE(szShortName);
+	int maxPrintLen = _scprintf(" [==========] 100.00 %% (%llu/%llu)", fileSize, fileSize); // 10 steps for progress bar
+	LPCTSTR ptr = &szFilePath[_tcslen(szFilePath) - 1];
 
 	// Get file name part from the path
 	while ((ptr != szFilePath) && (*ptr != _T('\\')) && (*ptr != _T('/')))
@@ -680,58 +702,58 @@ LPCTSTR GetShortFileName (LPCTSTR szFilePath, unsigned long long fileSize)
 	ptr++;
 
 	// calculate maximum length for file name	
-	bufferSize = (g_originalConsoleInfo.dwSize.X > (maxPrintLen+1))? min (256, (g_originalConsoleInfo.dwSize.X - 1 - maxPrintLen)) : 9;
+	bufferSize = (g_originalConsoleInfo.dwSize.X > (maxPrintLen + 1)) ? min(256, (g_originalConsoleInfo.dwSize.X - 1 - maxPrintLen)) : 9;
 
-	l = _tcslen (ptr);
+	l = _tcslen(ptr);
 	if (l < bufferSize)
-		_tcscpy (szShortName, ptr);
+		_tcscpy(szShortName, ptr);
 	else
 	{
 		size_t prefixLen = (bufferSize / 2 - 2);
 		size_t suffixLen = bufferSize - prefixLen - 4;
 
-		memcpy (szShortName, ptr, prefixLen * sizeof (TCHAR));
-		memcpy (((unsigned char*) szShortName) + prefixLen * sizeof (TCHAR), _T("..."), 3 * sizeof (TCHAR));
-		memcpy (((unsigned char*) szShortName) + (prefixLen + 3)* sizeof (TCHAR), ptr + (l - suffixLen), suffixLen * sizeof (TCHAR));
-		szShortName [bufferSize - 1] = 0;
+		memcpy(szShortName, ptr, prefixLen * sizeof(TCHAR));
+		memcpy(((unsigned char*)szShortName) + prefixLen * sizeof(TCHAR), _T("..."), 3 * sizeof(TCHAR));
+		memcpy(((unsigned char*)szShortName) + (prefixLen + 3) * sizeof(TCHAR), ptr + (l - suffixLen), suffixLen * sizeof(TCHAR));
+		szShortName[bufferSize - 1] = 0;
 	}
 	return szShortName;
 }
 
-void DisplayProgress (LPCTSTR szFileName, unsigned long long currentSize, unsigned long long fileSize, clock_t startTime, clock_t &lastBlockTime)
+void DisplayProgress(LPCTSTR szFileName, unsigned long long currentSize, unsigned long long fileSize, clock_t startTime, clock_t& lastBlockTime)
 {
-	clock_t t = clock ();
+	clock_t t = clock();
 	if (lastBlockTime == 0 || currentSize == fileSize || ((t - lastBlockTime) >= CLOCKS_PER_SEC))
 	{
 		unsigned long long maxPos = 10ull;
 		unsigned long long pos = (currentSize * maxPos) / fileSize;
-		double pourcentage = ((double) currentSize / (double) fileSize) * 100.0;
+		double pourcentage = ((double)currentSize / (double)fileSize) * 100.0;
 
 		lastBlockTime = t;
 
-		_tprintf (_T("\r%s ["), szFileName);
+		_tprintf(_T("\r%s ["), szFileName);
 		for (unsigned long long i = 0; i < maxPos; i++)
 		{
 			if (i < pos)
-				_tprintf (_T("="));
+				_tprintf(_T("="));
 			else
-				_tprintf (_T(" "));
+				_tprintf(_T(" "));
 		}
-		_tprintf (_T("] %.2f %% (%llu/%llu)"), pourcentage, currentSize, fileSize);
+		_tprintf(_T("] %.2f %% (%llu/%llu)"), pourcentage, currentSize, fileSize);
 
-		_tprintf (_T("\r"));
+		_tprintf(_T("\r"));
 	}
 }
 
-void ClearProgress ()
+void ClearProgress()
 {
-	_tprintf (_T("\r"));
+	_tprintf(_T("\r"));
 	for (int i = 0; i < g_originalConsoleInfo.dwSize.X - 1; i++)
 	{
-		_tprintf (_T(" "));
+		_tprintf(_T(" "));
 	}
 
-	_tprintf (_T("\r"));
+	_tprintf(_T("\r"));
 }
 
 DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode)
@@ -740,9 +762,9 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 	FILE* f = NULL;
 	int pathLen = lstrlen(szFilePath);
 	if (bSumMode)
-		pHash = Hash::GetHash (pHash->GetID());
+		pHash = Hash::GetHash(pHash->GetID());
 
-	if (pathLen <= MAX_PATH && !excludeSpecList.empty() && IsExcludedName (szFilePath, excludeSpecList))
+	if (pathLen <= MAX_PATH && !excludeSpecList.empty() && IsExcludedName(szFilePath, excludeSpecList))
 		return 0;
 
 	if (bIncludeNames)
@@ -753,39 +775,39 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 		else
 		{
 			g_szCanonalizedName[MAX_PATH] = 0;
-			if (!PathCanonicalize (g_szCanonalizedName, szFilePath))
-				lstrcpy (g_szCanonalizedName, szFilePath);
+			if (!PathCanonicalize(g_szCanonalizedName, szFilePath))
+				lstrcpy(g_szCanonalizedName, szFilePath);
 
 			if (bStripNames)
 				pNameToHash = PathFindFileName(g_szCanonalizedName);
 			else
-				pNameToHash = g_szCanonalizedName;  
+				pNameToHash = g_szCanonalizedName;
 		}
 
-		pHash->Update ((LPCBYTE) pNameToHash, _tcslen (pNameToHash) * sizeof(TCHAR));
+		pHash->Update((LPCBYTE)pNameToHash, _tcslen(pNameToHash) * sizeof(TCHAR));
 	}
 
 	f = _tfopen(szFilePath, _T("rb"));
-	if(f)
+	if (f)
 	{
 		size_t len;
 		bShowProgress = !bQuiet && bShowProgress;
-		unsigned long long fileSize = bShowProgress? (unsigned long long) _filelengthi64 ( _fileno (f)) : 0;
+		unsigned long long fileSize = bShowProgress ? (unsigned long long) _filelengthi64(_fileno(f)) : 0;
 		unsigned long long currentSize = 0;
-		clock_t startTime = bShowProgress? clock () : 0;
+		clock_t startTime = bShowProgress ? clock() : 0;
 		clock_t lastBlockTime = 0;
-		LPCTSTR szFileName = bShowProgress? GetShortFileName (szFilePath, fileSize) : NULL;
+		LPCTSTR szFileName = bShowProgress ? GetShortFileName(szFilePath, fileSize) : NULL;
 
-		while (  (len = fread(g_pbBuffer, 1, sizeof(g_pbBuffer), f)) != 0)
+		while ((len = fread(g_pbBuffer, 1, sizeof(g_pbBuffer), f)) != 0)
 		{
 			currentSize += (unsigned long long) len;
 			pHash->Update(g_pbBuffer, len);
 			if (bShowProgress)
-				DisplayProgress (szFileName, currentSize, fileSize, startTime, lastBlockTime);
+				DisplayProgress(szFileName, currentSize, fileSize, startTime, lastBlockTime);
 		}
 
 		if (bShowProgress)
-			ClearProgress ();
+			ClearProgress();
 
 		fclose(f);
 
@@ -794,15 +816,15 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 			pHash->Final(pbDigest);
 
 			// display hash in yellow
-			SetConsoleTextAttribute (g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
+			SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
 
-			ToHex (pbDigest, pHash->GetHashSize(), szDigestHex);
+			ToHex(pbDigest, pHash->GetHashSize(), szDigestHex);
 
-			if (!bQuiet) _tprintf(_T("%s  %s\n"),szDigestHex, szFilePath);
-			if (outputFile) _ftprintf(outputFile, _T("%s  %s\n"),szDigestHex, szFilePath);
+			if (!bQuiet) _tprintf(_T("%s  %s\n"), szDigestHex, szFilePath);
+			if (outputFile) _ftprintf(outputFile, _T("%s  %s\n"), szDigestHex, szFilePath);
 
 			// restore normal text color
-			SetConsoleTextAttribute (g_hConsole, g_wAttributes);
+			SetConsoleTextAttribute(g_hConsole, g_wAttributes);
 		}
 	}
 	else
@@ -821,11 +843,11 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 	wstring szDir;
 	WIN32_FIND_DATA ffd;
 	HANDLE hFind = INVALID_HANDLE_VALUE;
-	DWORD dwError=0;
+	DWORD dwError = 0;
 	list<CDirContent> dirContent;
 	int pathLen = lstrlen(szDirPath);
 
-	if (pathLen <= MAX_PATH && !excludeSpecList.empty() && IsExcludedName (szDirPath, excludeSpecList))
+	if (pathLen <= MAX_PATH && !excludeSpecList.empty() && IsExcludedName(szDirPath, excludeSpecList))
 		return 0;
 
 	if (bIncludeNames)
@@ -836,16 +858,16 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 		else
 		{
 			g_szCanonalizedName[MAX_PATH] = 0;
-			if (!PathCanonicalize (g_szCanonalizedName, szDirPath))
-				lstrcpy (g_szCanonalizedName, szDirPath);
+			if (!PathCanonicalize(g_szCanonalizedName, szDirPath))
+				lstrcpy(g_szCanonalizedName, szDirPath);
 
 			if (bStripNames)
 				pNameToHash = PathFindFileName(g_szCanonalizedName);
 			else
-				pNameToHash = g_szCanonalizedName;         
+				pNameToHash = g_szCanonalizedName;
 		}
 
-		pHash->Update ((LPCBYTE) pNameToHash, _tcslen (pNameToHash) * sizeof(TCHAR));
+		pHash->Update((LPCBYTE)pNameToHash, _tcslen(pNameToHash) * sizeof(TCHAR));
 	}
 
 	szDir += szDirPath;
@@ -855,21 +877,21 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 
 	hFind = FindFirstFile(szDir.c_str(), &ffd);
 
-	if (INVALID_HANDLE_VALUE == hFind) 
+	if (INVALID_HANDLE_VALUE == hFind)
 	{
 		dwError = GetLastError();
 		_tprintf(TEXT("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);
 		return dwError;
-	} 
+	}
 
 	// List all the files in the directory with some info about them.
 
 	do
 	{
-		if (  (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+		if ((ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
 		{
 			// Skip "." and ".." directories
-			if ( (_tcscmp(ffd.cFileName, _T(".")) != 0) && (_tcscmp(ffd.cFileName, _T("..")) != 0))
+			if ((_tcscmp(ffd.cFileName, _T(".")) != 0) && (_tcscmp(ffd.cFileName, _T("..")) != 0))
 				dirContent.push_back(CDirContent(szDirPath, ffd.cFileName, true));
 		}
 		else
@@ -880,7 +902,7 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 	while (FindNextFile(hFind, &ffd) != 0);
 
 	dwError = GetLastError();
-	if (dwError != ERROR_NO_MORE_FILES) 
+	if (dwError != ERROR_NO_MORE_FILES)
 	{
 		_tprintf(TEXT("FindNextFile failed while listing \"%s\". \n Error 0x%.8X.\n"), szDirPath, GetLastError());
 		return dwError;
@@ -898,7 +920,7 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 	{
 		if (it->IsDir())
 		{
-			dwError = HashDirectory( it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode);
+			dwError = HashDirectory(it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode);
 			if (dwError)
 				break;
 		}
@@ -915,43 +937,43 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 
 void ShowLogo()
 {
-	SetConsoleTextAttribute (g_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+	SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
 	_tprintf(_T("\nDirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2020\n\nRecursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\nSupported Algorithms : MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n"));
-	SetConsoleTextAttribute (g_hConsole, g_wAttributes);
+	SetConsoleTextAttribute(g_hConsole, g_wAttributes);
 }
 
 void ShowUsage()
 {
 	ShowLogo();
-	_tprintf(	TEXT("Usage: \n")
-				TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n")
-				TEXT("  DirHash.exe -benchmark [HashAlgo] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait]\n")
-				TEXT("\n")
-				TEXT("  Possible values for HashAlgo (not case sensitive, default is SHA1):\n")
-				TEXT("  MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n")
-				TEXT("  ResultFileName: text file where the result will be appended\n")
-				TEXT("  -benchmark: perform speed benchmark of the selected algoithm\n")
-				TEXT("  -mscrypto: use Windows native implementation of hash algorithms (Always enabled on ARM).\n")
-				TEXT("  -sum: output hash of every file processed in a format similar to shasum.\n")
-				TEXT("  -clip: copy the result to Windows clipboard (ignored when -sum specified)\n")
-				TEXT("  -lowercase: output hash value(s) in lower case instead of upper case\n")
-				TEXT("  -progress: Display information about the progress of hash operation\n")
-				TEXT("  -overwrite (only when -t present): output text file will be overwritten\n")
-				TEXT("  -quiet: No text is displayed or written except the hash value\n")
-				TEXT("  -nowait: avoid displaying the waiting prompt before exiting\n")
-				TEXT("  -hashnames: file names will be included in hash computation\n")
-				TEXT("  -exclude specifies a name pattern for files to exclude from hash computation.\n")
+	_tprintf(TEXT("Usage: \n")
+		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n")
+		TEXT("  DirHash.exe -benchmark [HashAlgo] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait]\n")
+		TEXT("\n")
+		TEXT("  Possible values for HashAlgo (not case sensitive, default is SHA1):\n")
+		TEXT("  MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n")
+		TEXT("  ResultFileName: text file where the result will be appended\n")
+		TEXT("  -benchmark: perform speed benchmark of the selected algoithm\n")
+		TEXT("  -mscrypto: use Windows native implementation of hash algorithms (Always enabled on ARM).\n")
+		TEXT("  -sum: output hash of every file processed in a format similar to shasum.\n")
+		TEXT("  -clip: copy the result to Windows clipboard (ignored when -sum specified)\n")
+		TEXT("  -lowercase: output hash value(s) in lower case instead of upper case\n")
+		TEXT("  -progress: Display information about the progress of hash operation\n")
+		TEXT("  -overwrite (only when -t present): output text file will be overwritten\n")
+		TEXT("  -quiet: No text is displayed or written except the hash value\n")
+		TEXT("  -nowait: avoid displaying the waiting prompt before exiting\n")
+		TEXT("  -hashnames: file names will be included in hash computation\n")
+		TEXT("  -exclude specifies a name pattern for files to exclude from hash computation.\n")
 	);
 }
 
 void ShowError(LPCTSTR szMsg, ...)
 {
 	va_list args;
-	va_start( args, szMsg );
-	SetConsoleTextAttribute (g_hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
-	_vtprintf (szMsg, args );
-	SetConsoleTextAttribute (g_hConsole, g_wAttributes);
-	va_end( args );
+	va_start(args, szMsg);
+	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+	_vtprintf(szMsg, args);
+	SetConsoleTextAttribute(g_hConsole, g_wAttributes);
+	va_end(args);
 }
 
 void WaitForExit(bool bDontWait = false)
@@ -963,23 +985,23 @@ void WaitForExit(bool bDontWait = false)
 	}
 }
 
-void CopyToClipboard (LPCTSTR szDigestHex)
+void CopyToClipboard(LPCTSTR szDigestHex)
 {
 	if (OpenClipboard(NULL))
 	{
-		size_t cch = _tcslen (szDigestHex);
+		size_t cch = _tcslen(szDigestHex);
 
-		HGLOBAL hglbCopy = GlobalAlloc(GMEM_MOVEABLE, 
-			(cch + 1) * sizeof(TCHAR)); 
+		HGLOBAL hglbCopy = GlobalAlloc(GMEM_MOVEABLE,
+			(cch + 1) * sizeof(TCHAR));
 		if (hglbCopy)
 		{
-			EmptyClipboard ();
+			EmptyClipboard();
 
 			// Lock the handle and copy the text to the buffer. 
-			LPVOID lptstrCopy = GlobalLock(hglbCopy); 
-			memcpy(lptstrCopy, (const TCHAR*) szDigestHex, 
-				(cch * sizeof(TCHAR)) + 1); 
-			GlobalUnlock(hglbCopy); 
+			LPVOID lptstrCopy = GlobalLock(hglbCopy);
+			memcpy(lptstrCopy, (const TCHAR*)szDigestHex,
+				(cch * sizeof(TCHAR)) + 1);
+			GlobalUnlock(hglbCopy);
 
 			// Place the handle on the clipboard. 
 #ifdef _UNICODE
@@ -989,14 +1011,14 @@ void CopyToClipboard (LPCTSTR szDigestHex)
 #endif
 		}
 
-		CloseClipboard(); 
+		CloseClipboard();
 	}
 }
 
-void BenchmarkAlgo (LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard)
+void BenchmarkAlgo(LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard)
 {
-	#define BENCH_BUFFER_SIZE 50 * 1024 * 1024
-	#define BENCH_LOOPS 50
+#define BENCH_BUFFER_SIZE 50 * 1024 * 1024
+#define BENCH_LOOPS 50
 	unsigned char* pbData = new unsigned char[BENCH_BUFFER_SIZE];
 	unsigned char pbDigest[64];
 
@@ -1006,22 +1028,22 @@ void BenchmarkAlgo (LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard)
 		clock_t t1, t2;
 		Hash* pHash = Hash::GetHash(hashAlgo);
 
-		t1 = clock ();
+		t1 = clock();
 		for (i = 0; i < BENCH_LOOPS; i++)
 		{
 			pHash->Update(pbData, BENCH_BUFFER_SIZE);
-			pHash->Final (pbDigest);			
+			pHash->Final(pbDigest);
 			pHash->Init();
 		}
 		t2 = clock();
 
-		double speed = ((double) BENCH_BUFFER_SIZE * (double) BENCH_LOOPS) / ((double)(t2 - t1) / (double) CLOCKS_PER_SEC);
-		if (speed >= (double) (1024 * 1024 * 1024))
-			StringCbPrintf ((TCHAR*) pbData, BENCH_BUFFER_SIZE, _T("%s speed = %f GiB/s"), hashAlgo, (speed / (double) (1024 * 1024 * 1024)));
-		else if (speed >= (double) (1024 * 1024))
-			StringCbPrintf((TCHAR*)pbData, BENCH_BUFFER_SIZE, _T("%s speed = %f MiB/s"), hashAlgo, (speed / (double) (1024 * 1024)));
-		else if (speed >= (double) (1024))
-			StringCbPrintf((TCHAR*)pbData, BENCH_BUFFER_SIZE, _T("%s speed = %f KiB/s"), hashAlgo, (speed / (double) (1024)));
+		double speed = ((double)BENCH_BUFFER_SIZE * (double)BENCH_LOOPS) / ((double)(t2 - t1) / (double)CLOCKS_PER_SEC);
+		if (speed >= (double)(1024 * 1024 * 1024))
+			StringCbPrintf((TCHAR*)pbData, BENCH_BUFFER_SIZE, _T("%s speed = %f GiB/s"), hashAlgo, (speed / (double)(1024 * 1024 * 1024)));
+		else if (speed >= (double)(1024 * 1024))
+			StringCbPrintf((TCHAR*)pbData, BENCH_BUFFER_SIZE, _T("%s speed = %f MiB/s"), hashAlgo, (speed / (double)(1024 * 1024)));
+		else if (speed >= (double)(1024))
+			StringCbPrintf((TCHAR*)pbData, BENCH_BUFFER_SIZE, _T("%s speed = %f KiB/s"), hashAlgo, (speed / (double)(1024)));
 		else
 			StringCbPrintf((TCHAR*)pbData, BENCH_BUFFER_SIZE, _T("%s speed = %f B/s"), hashAlgo, speed);
 
@@ -1046,37 +1068,37 @@ void BenchmarkAlgo (LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard)
 		SetConsoleTextAttribute(g_hConsole, g_wAttributes);
 
 		delete pHash;
-		delete [] pbData;
+		delete[] pbData;
 	}
 	else
 	{
-		_tprintf (_T("Failed to allocate memory for %s benchmark.\n"), hashAlgo);
+		_tprintf(_T("Failed to allocate memory for %s benchmark.\n"), hashAlgo);
 	}
 }
 
-void PerformBenchmark (Hash* pHash, bool bQuiet, bool bCopyToClipboard)
+void PerformBenchmark(Hash* pHash, bool bQuiet, bool bCopyToClipboard)
 {
-	BenchmarkAlgo (pHash->GetID(), bQuiet, bCopyToClipboard);
+	BenchmarkAlgo(pHash->GetID(), bQuiet, bCopyToClipboard);
 }
 
 int _tmain(int argc, _TCHAR* argv[])
 {
 	size_t length_of_arg;
 	HANDLE hFind = INVALID_HANDLE_VALUE;
-	DWORD dwError=0;
+	DWORD dwError = 0;
 	Hash* pHash = NULL;
 	wstring outputFileName;
 	bool bDontWait = false;
 	bool bIncludeNames = false;
 	bool bStripNames = false;
 	bool bQuiet = false;
-	bool bOverwrite = false;	
+	bool bOverwrite = false;
 	bool bCopyToClipboard = false;
 	bool bShowProgress = false;
-	bool bSumMode = false; 
+	bool bSumMode = false;
 	list<wstring> excludeSpecList;
 	OSVERSIONINFO osvi;
-    bool bIsWindowsX = false;
+	bool bIsWindowsX = false;
 	wstring hashAlgoToUse = L"SHA1";
 	bool bBenchmarkOp = false;
 
@@ -1085,24 +1107,24 @@ int _tmain(int argc, _TCHAR* argv[])
 	g_bUseMsCrypto = true;
 #endif
 
-    ZeroMemory(&osvi, sizeof(OSVERSIONINFO));
-    osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
+	ZeroMemory(&osvi, sizeof(OSVERSIONINFO));
+	osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
 
-    GetVersionEx(&osvi);
-	bIsWindowsX = ( (osvi.dwMajorVersion == 5) && (osvi.dwMinorVersion == 1) );
+	if (GetWindowsVersion(&osvi))
+		bIsWindowsX = ((osvi.dwMajorVersion == 5) && (osvi.dwMinorVersion == 1));
 
 	g_bCngAvailable = (osvi.dwMajorVersion >= 6);
 
 	if (bIsWindowsX)
 		g_szMsProvider = MS_ENH_RSA_AES_PROV_XP;
 
-	g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);   
+	g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 
 	// get original console attributes
 	if (GetConsoleScreenBufferInfo(g_hConsole, &g_originalConsoleInfo))
 		g_wAttributes = g_originalConsoleInfo.wAttributes;
 
-	setbuf (stdout, NULL);
+	setbuf(stdout, NULL);
 
 	SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2018"));
 
@@ -1120,7 +1142,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	{
 		for (int i = 2; i < argc; i++)
 		{
-			if (_tcscmp(argv[i],_T("-t")) == 0)
+			if (_tcscmp(argv[i], _T("-t")) == 0)
 			{
 				if ((i + 1) >= argc)
 				{
@@ -1135,19 +1157,19 @@ int _tmain(int argc, _TCHAR* argv[])
 
 				i++;
 			}
-			else if (_tcscmp(argv[i],_T("-overwrite")) == 0)
+			else if (_tcscmp(argv[i], _T("-overwrite")) == 0)
 			{
 				bOverwrite = true;
 			}
-			else if (_tcscmp(argv[i],_T("-nowait")) == 0)
+			else if (_tcscmp(argv[i], _T("-nowait")) == 0)
 			{
 				bDontWait = true;
 			}
-			else if (_tcscmp(argv[i],_T("-quiet")) == 0)
+			else if (_tcscmp(argv[i], _T("-quiet")) == 0)
 			{
 				bQuiet = true;
 			}
-			else if (_tcscmp(argv[i],_T("-hashnames")) == 0)
+			else if (_tcscmp(argv[i], _T("-hashnames")) == 0)
 			{
 				if (bBenchmarkOp)
 				{
@@ -1158,7 +1180,7 @@ int _tmain(int argc, _TCHAR* argv[])
 				}
 				bIncludeNames = true;
 			}
-			else if (_tcscmp(argv[i],_T("-stripnames")) == 0)
+			else if (_tcscmp(argv[i], _T("-stripnames")) == 0)
 			{
 				if (bBenchmarkOp)
 				{
@@ -1169,7 +1191,7 @@ int _tmain(int argc, _TCHAR* argv[])
 				}
 				bStripNames = true;
 			}
-			else if (_tcscmp(argv[i],_T("-sum")) == 0)
+			else if (_tcscmp(argv[i], _T("-sum")) == 0)
 			{
 				if (bBenchmarkOp)
 				{
@@ -1180,7 +1202,7 @@ int _tmain(int argc, _TCHAR* argv[])
 				}
 				bSumMode = true;
 			}
-			else if (_tcscmp(argv[i],_T("-exclude")) == 0)
+			else if (_tcscmp(argv[i], _T("-exclude")) == 0)
 			{
 				if (bBenchmarkOp)
 				{
@@ -1198,7 +1220,7 @@ int _tmain(int argc, _TCHAR* argv[])
 					return 1;
 				}
 
-				excludeSpecList.push_back(argv[i+1]);
+				excludeSpecList.push_back(argv[i + 1]);
 
 				i++;
 			}
@@ -1232,7 +1254,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			{
 				g_bUseMsCrypto = true;
 			}
-			else if (Hash::IsHashId (argv[i]))
+			else if (Hash::IsHashId(argv[i]))
 			{
 				hashAlgoToUse = argv[i];
 			}
@@ -1262,12 +1284,12 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	if (!outputFileName.empty())
 	{
-		outputFile = _tfopen(outputFileName.c_str(), bOverwrite? _T("wt") : _T("a+t"));
+		outputFile = _tfopen(outputFileName.c_str(), bOverwrite ? _T("wt") : _T("a+t"));
 		if (!outputFile)
 		{
 			if (!bQuiet)
 			{
-				ShowError (_T("!!!Failed to open the result file for writing!!!\n"));
+				ShowError(_T("!!!Failed to open the result file for writing!!!\n"));
 			}
 		}
 	}
@@ -1275,7 +1297,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	if (bBenchmarkOp)
 	{
 
-		PerformBenchmark (pHash, bQuiet, bCopyToClipboard);
+		PerformBenchmark(pHash, bQuiet, bCopyToClipboard);
 
 		delete pHash;
 
@@ -1309,10 +1331,10 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	if (!bQuiet)
 	{
-		_tprintf(_T("Using %s to compute %s of \"%s\" ...\n"), 
-			pHash->GetID(), 
-			bSumMode? _T("checksum") : _T("hash"),
-			bStripNames? PathFindFileName(argv[1]) : argv[1]);
+		_tprintf(_T("Using %s to compute %s of \"%s\" ...\n"),
+			pHash->GetID(),
+			bSumMode ? _T("checksum") : _T("hash"),
+			bStripNames ? PathFindFileName(argv[1]) : argv[1]);
 		fflush(stdout);
 	}
 
@@ -1347,27 +1369,27 @@ int _tmain(int argc, _TCHAR* argv[])
 			{
 				if (outputFile)
 				{
-					_ftprintf(outputFile, __T("%s hash of \"%s\" (%d bytes) = "), 
-						pHash->GetID(), 
-						PathFindFileName(argv[1]), 
+					_ftprintf(outputFile, __T("%s hash of \"%s\" (%d bytes) = "),
+						pHash->GetID(),
+						PathFindFileName(argv[1]),
 						pHash->GetHashSize());
 				}
 				_tprintf(_T("%s (%d bytes) = "), pHash->GetID(), pHash->GetHashSize());
 			}
 
 			// display hash in yellow
-			SetConsoleTextAttribute (g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
+			SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
 
-			ToHex (pbDigest, pHash->GetHashSize(), szDigestHex);
+			ToHex(pbDigest, pHash->GetHashSize(), szDigestHex);
 
 			_tprintf(szDigestHex);
 			if (outputFile) _ftprintf(outputFile, szDigestHex);
 
 			if (bCopyToClipboard)
-				CopyToClipboard (szDigestHex);
+				CopyToClipboard(szDigestHex);
 
 			// restore normal text color
-			SetConsoleTextAttribute (g_hConsole, g_wAttributes);
+			SetConsoleTextAttribute(g_hConsole, g_wAttributes);
 
 			_tprintf(_T("\n"));
 			if (outputFile) _ftprintf(outputFile, _T("\n"));
@@ -1378,9 +1400,9 @@ int _tmain(int argc, _TCHAR* argv[])
 	delete pHash;
 	if (outputFile) fclose(outputFile);
 
-	SecureZeroMemory (g_pbBuffer, sizeof (g_pbBuffer));
-	SecureZeroMemory (pbDigest, sizeof (pbDigest));
-	SecureZeroMemory (szDigestHex, sizeof (szDigestHex));
+	SecureZeroMemory(g_pbBuffer, sizeof(g_pbBuffer));
+	SecureZeroMemory(pbDigest, sizeof(pbDigest));
+	SecureZeroMemory(szDigestHex, sizeof(szDigestHex));
 
 
 	WaitForExit(bDontWait);
