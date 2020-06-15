@@ -13,6 +13,7 @@ Usage
 ------------
 
 DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-clip] [-overwrite] [-quiet] [-nowait] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] 
+
 DirHash.exe -benchmark [HashAlgo] [-t ResultFileName] [-clip] [-overwrite] [-quiet] [-nowait]
 
 Possible values for HashAlgo (not case sensitive):
