@@ -46,11 +46,24 @@ If -quiet is specified, no text is displayed or written to the output file excep
 
 If -nowait is specified, program will exit immediately after displaying the hash result. Otherwise, it prompts user to hit a key before it exits.
 
-If -nowait is specified, program will exit immediately after displaying the hash result. Otherwise, it prompts user to hit a key before it exits.
-
 If -hashnames is specified, the case sensitive names of the files and directories will be included in the hash computation. Otherwise, only files content is used.
 
 If -stripnames is specified (only when -hashnames also specified), only the the last path portion of DirectoryOrFilePath is used for hash calculation.
 
 If -exclude is specified, it must be followed by a string indicating the file type that must be excluded from the hash computation. For example, to exclude .log files, you specify "-exclude *.log". This switch can be repeated many times in the command line to specify different file types to exclude.
+
+DirHash can also be configured using a configuration file called DirHash.ini and which must be on the same folder as DirHash.exe.
+An example of DirHash.ini is shown below:
+
+[Defaults]
+Hash=SHA1
+Quiet=False
+NoWait=True
+ShowProgress=False
+clip=True
+hashnames=False
+stripnames=False
+lowercase=False
+MSCrypto=False
+
 
