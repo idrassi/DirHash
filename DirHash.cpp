@@ -1081,6 +1081,108 @@ void PerformBenchmark(Hash* pHash, bool bQuiet, bool bCopyToClipboard)
 	BenchmarkAlgo(pHash->GetID(), bQuiet, bCopyToClipboard);
 }
 
+void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& bShowProgress, bool& bCopyToClipboard, bool& bIncludeNames, bool& bStripNames, bool& bLowerCase, bool& bUseMsCrypto)
+{
+	hashAlgoToUse = L"SHA1";
+	bUseMsCrypto = false;
+	bDontWait = false;
+	bIncludeNames = false;
+	bStripNames = false;
+	bQuiet = false;
+	bCopyToClipboard = false;
+	bShowProgress = false;
+	bLowerCase = false;
+
+	// get values from DirHash.ini fille if it exists
+	WCHAR szInitPath[1024];
+	szInitPath[0] = 0;
+	if (GetModuleFileName(NULL, szInitPath, ARRAYSIZE(szInitPath)))
+	{
+		wchar_t* ptr = wcsrchr (szInitPath, L'\\');
+		if (ptr)
+		{
+			ptr += 1;
+			*ptr = 0;
+			StringCbCatW(szInitPath, sizeof(szInitPath), L"DirHash.ini");
+
+			WCHAR szValue[128];
+			if (GetPrivateProfileStringW(L"Defaults", L"Hash", L"SHA1", szValue, ARRAYSIZE(szValue), szInitPath) && Hash::IsHashId (szValue))
+			{
+				hashAlgoToUse = szValue;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"Quiet", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					bQuiet = true;
+				else
+					bQuiet = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"NoWait", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					bDontWait = true;
+				else
+					bDontWait = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"ShowProgress", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					bShowProgress = true;
+				else
+					bShowProgress = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"hashnames", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					bIncludeNames = true;
+				else
+					bIncludeNames = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"stripnames", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					bStripNames = true;
+				else
+					bStripNames = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"clip", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					bCopyToClipboard = true;
+				else
+					bCopyToClipboard = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"lowercase", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					bLowerCase = true;
+				else
+					bLowerCase = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"MSCrypto", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					bUseMsCrypto = true;
+				else
+					bUseMsCrypto = false;
+			}
+		}
+	}
+
+#if defined (_M_ARM64) || defined (_M_ARM)
+	// we always use Windows native crypto on ARM platform because OpenSSL is not optimized for such platforms
+	g_bUseMsCrypto = true;
+#endif
+}
+
 int _tmain(int argc, _TCHAR* argv[])
 {
 	size_t length_of_arg;
@@ -1102,11 +1204,6 @@ int _tmain(int argc, _TCHAR* argv[])
 	wstring hashAlgoToUse = L"SHA1";
 	bool bBenchmarkOp = false;
 
-#if defined (_M_ARM64) || defined (_M_ARM)
-	// we always use Windows native crypto on ARM platform because OpenSSL is not optimized for such platforms
-	g_bUseMsCrypto = true;
-#endif
-
 	ZeroMemory(&osvi, sizeof(OSVERSIONINFO));
 	osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
 
@@ -1126,7 +1223,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	setbuf(stdout, NULL);
 
-	SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2018"));
+	SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2020"));
 
 	if (argc < 2)
 	{
@@ -1134,6 +1231,8 @@ int _tmain(int argc, _TCHAR* argv[])
 		WaitForExit();
 		return 1;
 	}
+
+	LoadDefaults(hashAlgoToUse, bQuiet, bDontWait, bShowProgress, bCopyToClipboard, bIncludeNames, bStripNames, g_bLowerCase, g_bUseMsCrypto);
 
 	if (_tcscmp(argv[1], _T("-benchmark")) == 0)
 		bBenchmarkOp = true;
