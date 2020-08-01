@@ -57,6 +57,7 @@ If -exclude is specified, it must be followed by a string indicating the file ty
 DirHash can also be configured using a configuration file called DirHash.ini and which must be on the same folder as DirHash.exe.
 An example of DirHash.ini is shown below:
 
+```
 [Defaults]
 Hash=SHA1
 Quiet=False
@@ -67,5 +68,5 @@ hashnames=False
 stripnames=False
 lowercase=False
 MSCrypto=False
-
+```
 
