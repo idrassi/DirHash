@@ -70,10 +70,14 @@
 #endif
 #include <string>
 #include <list>
+#include <map>
+#include <vector>
 #ifdef USE_STREEBOG
 #include "Streebog.h"
 #endif
 using namespace std;
+
+typedef vector<unsigned char> ByteArray;
 
 
 static BYTE g_pbBuffer[4096];
@@ -88,6 +92,7 @@ static bool g_bLowerCase = false;
 static bool g_bUseMsCrypto = false;
 static bool g_bCngAvailable = false;
 static LPCTSTR g_szMsProvider = MS_ENH_RSA_AES_PROV;
+static bool g_bMismatchFound = false;
 
 // Used for sorting directory content
 bool compare_nocase(LPCWSTR first, LPCWSTR second)
@@ -115,6 +120,71 @@ void ToHex(LPBYTE pbData, int iLen, LPTSTR szHex)
 		*szHex++ = ToHex(b & 0x0F);
 	}
 	*szHex = 0;
+}
+
+bool FromHex(TCHAR c, unsigned char& b)
+{
+	if (c >= _T('0') && c <= _T('9'))
+		b = c - _T('0');
+	else if (c >= _T('a') && c <= _T('f'))
+		b = 10 + (c - _T('a'));
+	else if (c >= _T('A') && c <= _T('F'))
+		b = 10 + (c - _T('A'));
+	else
+		return false;
+	return true;
+}
+
+bool FromHex(const TCHAR* szHex, ByteArray& buffer)
+{
+	bool bRet = false;
+	if (szHex)
+	{
+		size_t l = _tcslen(szHex);
+		if (l % 2 == 0)
+		{
+			size_t i;
+			for (i = 0; i < l / 2; i++)
+			{
+				unsigned char b1, b2;
+				if (FromHex(*szHex++, b1) && FromHex(*szHex++, b2))
+				{
+					buffer.push_back(b1 * 16 + b2);
+				}
+				else
+					break;
+			}
+
+			if (i == (l / 2))
+			{
+				bRet = true;
+			}
+			else
+				buffer.clear();
+		}
+	}
+
+	return bRet;
+}
+
+void ShowError(LPCTSTR szMsg, ...)
+{
+	va_list args;
+	va_start(args, szMsg);
+	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+	_vtprintf(szMsg, args);
+	SetConsoleTextAttribute(g_hConsole, g_wAttributes);
+	va_end(args);
+}
+
+void ShowWarning(LPCTSTR szMsg, ...)
+{
+	va_list args;
+	va_start(args, szMsg);
+	SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
+	_vtprintf(szMsg, args);
+	SetConsoleTextAttribute(g_hConsole, g_wAttributes);
+	va_end(args);
 }
 
 typedef  NTSTATUS(WINAPI* RtlGetVersionFn)(
@@ -756,16 +826,33 @@ void ClearProgress()
 	_tprintf(_T("\r"));
 }
 
-DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode)
+DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring,ByteArray>& digestList)
 {
 	DWORD dwError = 0;
 	FILE* f = NULL;
 	int pathLen = lstrlen(szFilePath);
-	if (bSumMode)
-		pHash = Hash::GetHash(pHash->GetID());
+	map<wstring, ByteArray>::const_iterator It;
+	bool bSumVerificationMode = false;
 
 	if (pathLen <= MAX_PATH && !excludeSpecList.empty() && IsExcludedName(szFilePath, excludeSpecList))
 		return 0;
+
+	if (bSumMode)
+	{
+		if (!digestList.empty())
+		{
+			// check that the current file is specified in the checksum file
+			It = digestList.find(szFilePath);
+			if (It == digestList.end())
+			{
+				ShowError(_T("Error: file \"%s\" not found in checksum file."), szFilePath);
+				return -5;
+			}
+			else
+				bSumVerificationMode = true;
+		}
+		pHash = Hash::GetHash(pHash->GetID());
+	}
 
 	if (bIncludeNames)
 	{
@@ -815,16 +902,28 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 		{
 			pHash->Final(pbDigest);
 
-			// display hash in yellow
-			SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
+			if (bSumVerificationMode)
+			{
+				if (memcmp(pbDigest, It->second.data(), pHash->GetHashSize()))
+				{
+					g_bMismatchFound = true;
+					if (!bQuiet) ShowWarning(_T("Hash value mismatch for \"%s\"\n"), szFilePath);
+					if (outputFile) _ftprintf(outputFile, _T("Hash value mismatch for \"%s\"\n"), szFilePath);
+				}
+			}
+			else
+			{
+				// display hash in yellow
+				SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
 
-			ToHex(pbDigest, pHash->GetHashSize(), szDigestHex);
+				ToHex(pbDigest, pHash->GetHashSize(), szDigestHex);
 
-			if (!bQuiet) _tprintf(_T("%s  %s\n"), szDigestHex, szFilePath);
-			if (outputFile) _ftprintf(outputFile, _T("%s  %s\n"), szDigestHex, szFilePath);
+				if (!bQuiet) _tprintf(_T("%s  %s\n"), szDigestHex, szFilePath);
+				if (outputFile) _ftprintf(outputFile, _T("%s  %s\n"), szDigestHex, szFilePath);
 
-			// restore normal text color
-			SetConsoleTextAttribute(g_hConsole, g_wAttributes);
+				// restore normal text color
+				SetConsoleTextAttribute(g_hConsole, g_wAttributes);
+			}
 		}
 	}
 	else
@@ -838,7 +937,7 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 	return dwError;
 }
 
-DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode)
+DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, ByteArray>& digestList)
 {
 	wstring szDir;
 	WIN32_FIND_DATA ffd;
@@ -920,13 +1019,13 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 	{
 		if (it->IsDir())
 		{
-			dwError = HashDirectory(it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode);
+			dwError = HashDirectory(it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestList);
 			if (dwError)
 				break;
 		}
 		else
 		{
-			dwError = HashFile(it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode);
+			dwError = HashFile(it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestList);
 			if (dwError)
 				break;
 		}
@@ -942,11 +1041,12 @@ void ShowLogo()
 	SetConsoleTextAttribute(g_hConsole, g_wAttributes);
 }
 
+
 void ShowUsage()
 {
 	ShowLogo();
 	_tprintf(TEXT("Usage: \n")
-		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n")
+		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify checksumFileName] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n")
 		TEXT("  DirHash.exe -benchmark [HashAlgo] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait]\n")
 		TEXT("\n")
 		TEXT("  Possible values for HashAlgo (not case sensitive, default is SHA1):\n")
@@ -955,6 +1055,7 @@ void ShowUsage()
 		TEXT("  -benchmark: perform speed benchmark of the selected algoithm\n")
 		TEXT("  -mscrypto: use Windows native implementation of hash algorithms (Always enabled on ARM).\n")
 		TEXT("  -sum: output hash of every file processed in a format similar to shasum.\n")
+		TEXT("  -verify: verify hash of every file against its hash value present in the given checksum file.\n")
 		TEXT("  -clip: copy the result to Windows clipboard (ignored when -sum specified)\n")
 		TEXT("  -lowercase: output hash value(s) in lower case instead of upper case\n")
 		TEXT("  -progress: Display information about the progress of hash operation\n")
@@ -964,16 +1065,6 @@ void ShowUsage()
 		TEXT("  -hashnames: file names will be included in hash computation\n")
 		TEXT("  -exclude specifies a name pattern for files to exclude from hash computation.\n")
 	);
-}
-
-void ShowError(LPCTSTR szMsg, ...)
-{
-	va_list args;
-	va_start(args, szMsg);
-	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
-	_vtprintf(szMsg, args);
-	SetConsoleTextAttribute(g_hConsole, g_wAttributes);
-	va_end(args);
 }
 
 void WaitForExit(bool bDontWait = false)
@@ -1183,6 +1274,99 @@ void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& b
 #endif
 }
 
+bool ParseSumFile(const wchar_t* sumFile, map<wstring, ByteArray>& digestList)
+{
+	bool bRet = false;
+	FILE* f = _wfopen(sumFile, L"rt");
+	if (f)
+	{
+		bool bFailed = false;
+		ByteArray buffer(4096 * 2);
+		wchar_t* szLine = (wchar_t*)buffer.data();
+		size_t digestLen = 0;
+		
+		digestList.clear();
+
+		while (fgetws(szLine, (int)(buffer.size() / 2), f))
+		{
+			size_t l = wcslen(szLine);
+			if (szLine[l - 1] == L'\n')
+			{
+				szLine[l - 1] = 0;
+				l--;
+			}
+
+			if (l == 0)
+				continue;
+
+			// extract hash which is followed by two or one space characters
+			wchar_t* ptr = wcschr(szLine, L' ');
+			if (ptr)
+			{
+				*ptr = 0;
+				ptr++;
+				// look for begining of file path
+				while (ptr != &szLine[l - 1] && *ptr == L' ')
+					ptr++;
+				if (ptr != &szLine[l - 1])
+				{
+					// hash length must be one of the supported ones (16, 20, 32, 48, 64)
+					ByteArray digest;
+					if (FromHex(szLine, digest))
+					{
+						if ((digestLen != 0 && digestLen == digest.size())
+							|| (digestLen == 0 && ((digest.size() == 16) || (digest.size() == 20) || (digest.size() == 32) || (digest.size() == 48) || (digest.size() == 64)))
+							)
+						{
+							digestLen = digest.size();
+							digestList[ptr] = digest;
+						}
+						else
+						{
+							bFailed = true;
+							break;
+						}
+					}
+					else
+					{
+						bFailed = true;
+						break;
+					}
+				}
+				else
+				{
+					bFailed = true;
+					break;
+				}
+			}
+			else
+			{
+				bFailed = true;
+				break;
+			}
+		}
+		fclose(f);
+
+		if (bFailed)
+		{
+			_tprintf(TEXT("Invalid format for checksum file \"%s\"\n"), sumFile);
+			digestList.clear();
+		}
+		else if (digestList.size() == 0)
+		{
+			_tprintf(TEXT("No entries found in checksum file \"%s\"\n"), sumFile);
+		}
+		else
+			bRet = true;
+	}
+	else
+	{
+		_tprintf(TEXT("Failed to open file \"%s\" for reading\n"), sumFile);
+	}
+
+	return bRet;
+}
+
 int _tmain(int argc, _TCHAR* argv[])
 {
 	size_t length_of_arg;
@@ -1190,6 +1374,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	DWORD dwError = 0;
 	Hash* pHash = NULL;
 	wstring outputFileName;
+	wstring sumVerificationFileName;
 	bool bDontWait = false;
 	bool bIncludeNames = false;
 	bool bStripNames = false;
@@ -1198,11 +1383,13 @@ int _tmain(int argc, _TCHAR* argv[])
 	bool bCopyToClipboard = false;
 	bool bShowProgress = false;
 	bool bSumMode = false;
+	bool bVerifySumMode = false;
 	list<wstring> excludeSpecList;
 	OSVERSIONINFO osvi;
 	bool bIsWindowsX = false;
 	wstring hashAlgoToUse = L"SHA1";
 	bool bBenchmarkOp = false;
+	map < wstring, ByteArray> digestsList;
 
 	ZeroMemory(&osvi, sizeof(OSVERSIONINFO));
 	osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
@@ -1299,7 +1486,48 @@ int _tmain(int argc, _TCHAR* argv[])
 					WaitForExit(bDontWait);
 					return 1;
 				}
+
+				if (bVerifySumMode)
+				{
+					ShowUsage();
+					ShowError(_T("Error: -sum can not be combined with -verify\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
+
 				bSumMode = true;
+			}
+			else if (_tcscmp(argv[i], _T("-verify")) == 0)
+			{
+				if (bBenchmarkOp)
+				{
+					ShowUsage();
+					ShowError(_T("Error: -verify can not be combined with -benchmark\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
+				
+				if (bSumMode)
+				{
+					ShowUsage();
+					ShowError(_T("Error: -verify can not be combined with -sum\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
+
+				if ((i + 1) >= argc)
+				{
+					// missing file argument               
+					ShowUsage();
+					ShowError(_T("Error: Missing argument for switch -exclude\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
+
+				bVerifySumMode = true;
+
+				sumVerificationFileName = argv[i + 1];
+				i++;
 			}
 			else if (_tcscmp(argv[i], _T("-exclude")) == 0)
 			{
@@ -1404,6 +1632,30 @@ int _tmain(int argc, _TCHAR* argv[])
 		return dwError;
 	}
 
+	if (bVerifySumMode)
+	{
+		if (ParseSumFile(sumVerificationFileName.c_str(), digestsList))
+		{
+			// check that hash length used in the checksum file is the same as the one specified by the user
+			int sumFileHashLen = (int)digestsList.begin()->second.size();
+			if (sumFileHashLen != pHash->GetHashSize())
+			{
+				if (!bQuiet)
+					ShowError(TEXT("Error: hash length parsed from checksum file (%d bytes) is different from used hash length (%d bytes).\n"), sumFileHashLen, pHash->GetHashSize());
+				WaitForExit(bDontWait);
+				return (-4);
+			}
+			bSumMode = true;
+		}
+		else
+		{
+			if (!bQuiet)
+				ShowError(TEXT("Error: Failed to parse checksum file \"%s\". Please check that it exists and that its content is valid.\n"), sumVerificationFileName.c_str());
+			WaitForExit(bDontWait);
+			return (-3);
+		}
+	}
+
 	// Check that the input path plus 3 is not longer than MAX_PATH.
 	// Three characters are for the "\*" plus NULL appended below.
 
@@ -1430,8 +1682,9 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	if (!bQuiet)
 	{
-		_tprintf(_T("Using %s to compute %s of \"%s\" ...\n"),
+		_tprintf(_T("Using %s to %s %s of \"%s\" ...\n"),
 			pHash->GetID(),
+			bVerifySumMode? _T("verify") : _T("compute"),
 			bSumMode ? _T("checksum") : _T("hash"),
 			bStripNames ? PathFindFileName(argv[1]) : argv[1]);
 		fflush(stdout);
@@ -1449,18 +1702,56 @@ int _tmain(int argc, _TCHAR* argv[])
 			argv[1][pathLen - 1] = 0;
 		}
 
-		dwError = HashDirectory(argv[1], pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode);
+		dwError = HashDirectory(argv[1], pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
 
 		// restore backslash
 		if (backslash)
 			argv[1][pathLen - 1] = backslash;
 	}
 	else
-		dwError = HashFile(argv[1], pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode);
+		dwError = HashFile(argv[1], pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
 
 	if (dwError == NO_ERROR)
 	{
-		if (!bSumMode)
+		if (bSumMode)
+		{
+			if (bVerifySumMode)
+			{
+				if (g_bMismatchFound)
+				{
+					if (!bQuiet)
+					{
+						ShowError(_T("Verification of \"%s\" against \"%s\" failed!\n"),
+							argv[1],
+							sumVerificationFileName.c_str());
+					}
+					if (outputFile)
+					{
+						_ftprintf(outputFile, _T("Verification of \"%s\" against \"%s\" failed!\n"),
+							argv[1],
+							sumVerificationFileName.c_str());
+					}
+					dwError = -7;
+				}
+				else
+				{
+					if (!bQuiet)
+					{
+						_tprintf(_T("Verification of \"%s\" against \"%s\" succeeded.\n"),
+							argv[1],
+							sumVerificationFileName.c_str());
+					}
+					if (outputFile)
+					{
+						_ftprintf(outputFile, _T("Verification of \"%s\" against \"%s\" succeeded.\n"),
+							argv[1],
+							sumVerificationFileName.c_str());
+					}
+				}
+
+			}
+		}
+		else
 		{
 			pHash->Final(pbDigest);
 

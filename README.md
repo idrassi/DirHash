@@ -12,7 +12,7 @@ Home page: https://idrassi.github.io/DirHash/
 Usage
 ------------
 
-DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-clip] [-overwrite] [-quiet] [-nowait] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] 
+DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-verify checksumFileName] [-clip] [-lowercase] [-overwrite] [-quiet] [-nowait] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] 
 
 DirHash.exe -benchmark [HashAlgo] [-t ResultFileName] [-clip] [-overwrite] [-quiet] [-nowait]
 
@@ -33,6 +33,8 @@ if -benchmark is specified, program will perform speed benchmark of the selected
 if -mscrypto specified, program will use Windows native implementation of hash algorithms (This is always enabled on Windows ARM platforms since OpenSSL is too slow on them).
 
 if -sum is specified, program will output the hash of every file processed in a format similar to shasum.
+
+if -verify is specified, program will verify the hash of every file processed against its hash value present in the given checksum file.
 
 if -clip is specified, the hash result is copied to Windows clipboard. This switch is ignored when -sum is specified.
 
