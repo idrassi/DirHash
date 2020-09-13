@@ -94,6 +94,7 @@ static bool g_bUseMsCrypto = false;
 static bool g_bCngAvailable = false;
 static LPCTSTR g_szMsProvider = MS_ENH_RSA_AES_PROV;
 static bool g_bMismatchFound = false;
+static bool g_bSkipError = false;
 
 // Used for sorting directory content
 bool compare_nocase(LPCWSTR first, LPCWSTR second)
@@ -876,8 +877,17 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 			It = digestList.find(szFilePath);
 			if (It == digestList.end())
 			{
-				ShowError(_T("Error: file \"%s\" not found in checksum file."), szFilePath);
-				return -5;
+				if (!bQuiet) ShowError(_T("Error: file \"%s\" not found in checksum file.\n"), szFilePath);
+				if (outputFile) _ftprintf(outputFile, _T("Error: file \"%s\" not found in checksum file.\n"), szFilePath);
+				if (g_bSkipError)
+				{					
+					g_bMismatchFound = true;
+					return 0;					
+				}
+				else
+				{					
+					return -5;
+				}
 			}
 			else
 				bSumVerificationMode = true;
@@ -959,8 +969,17 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 	}
 	else
 	{
-		_tprintf(TEXT("Failed to open file \"%s\" for reading\n"), szFilePath);
-		dwError = -1;
+		if (!bQuiet) ShowError(_T("Failed to open file \"%s\" for reading\n"), szFilePath);
+		if (outputFile) _ftprintf(outputFile, _T("Failed to open file \"%s\" for reading\n"), szFilePath);
+		if (g_bSkipError)
+		{
+			if (bSumMode) g_bMismatchFound = true;
+			dwError = 0;
+		}
+		else
+		{		
+			dwError = -1;
+		}
 	}
 
 	if (bSumMode)
@@ -980,25 +999,6 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 	if (pathLen <= MAX_PATH && !excludeSpecList.empty() && IsExcludedName(szDirPath, excludeSpecList))
 		return 0;
 
-	if (bIncludeNames)
-	{
-		LPCTSTR pNameToHash = NULL;
-		if (lstrlen(szDirPath) > MAX_PATH)
-			pNameToHash = szDirPath;
-		else
-		{
-			g_szCanonalizedName[MAX_PATH] = 0;
-			if (!PathCanonicalize(g_szCanonalizedName, szDirPath))
-				lstrcpy(g_szCanonalizedName, szDirPath);
-
-			if (bStripNames)
-				pNameToHash = PathFindFileName(g_szCanonalizedName);
-			else
-				pNameToHash = g_szCanonalizedName;
-		}
-
-		pHash->Update((LPCBYTE)pNameToHash, _tcslen(pNameToHash) * sizeof(TCHAR));
-	}
 
 	szDir += szDirPath;
 	szDir += _T("\\*");
@@ -1010,8 +1010,16 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 	if (INVALID_HANDLE_VALUE == hFind)
 	{
 		dwError = GetLastError();
-		_tprintf(TEXT("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);
-		return dwError;
+		if (!bQuiet) ShowError(_T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);
+		if (outputFile) _ftprintf(outputFile, _T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);
+		if (g_bSkipError)
+		{
+			return 0;
+		}
+		else
+		{						
+			return dwError;
+		}
 	}
 
 	// List all the files in the directory with some info about them.
@@ -1034,8 +1042,17 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 	dwError = GetLastError();
 	if (dwError != ERROR_NO_MORE_FILES)
 	{
-		_tprintf(TEXT("FindNextFile failed while listing \"%s\". \n Error 0x%.8X.\n"), szDirPath, GetLastError());
-		return dwError;
+		FindClose(hFind);
+		if (!bQuiet) ShowError(TEXT("FindNextFile failed while listing \"%s\". \n Error 0x%.8X.\n"), szDirPath, dwError);
+		if (outputFile) _ftprintf(outputFile, TEXT("FindNextFile failed while listing \"%s\". \n Error 0x%.8X.\n"), szDirPath, dwError);
+		if (g_bSkipError)
+		{
+			return 0;
+		}
+		else
+		{			
+			return dwError;
+		}
 	}
 
 	// Clear the error
@@ -1045,6 +1062,26 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 
 	// Sort all entries
 	dirContent.sort(compare_nocase);
+
+	if (bIncludeNames)
+	{
+		LPCTSTR pNameToHash = NULL;
+		if (lstrlen(szDirPath) > MAX_PATH)
+			pNameToHash = szDirPath;
+		else
+		{
+			g_szCanonalizedName[MAX_PATH] = 0;
+			if (!PathCanonicalize(g_szCanonalizedName, szDirPath))
+				lstrcpy(g_szCanonalizedName, szDirPath);
+
+			if (bStripNames)
+				pNameToHash = PathFindFileName(g_szCanonalizedName);
+			else
+				pNameToHash = g_szCanonalizedName;
+		}
+
+		pHash->Update((LPCBYTE)pNameToHash, _tcslen(pNameToHash) * sizeof(TCHAR));
+	}
 
 	for (list<CDirContent>::iterator it = dirContent.begin(); it != dirContent.end(); it++)
 	{
@@ -1077,7 +1114,7 @@ void ShowUsage()
 {
 	ShowLogo();
 	_tprintf(TEXT("Usage: \n")
-		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-exclude pattern1] [-exclude pattern2]\n")
+		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-skipError] [-exclude pattern1] [-exclude pattern2]\n")
 		TEXT("  DirHash.exe -benchmark [HashAlgo] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait]\n")
 		TEXT("\n")
 		TEXT("  Possible values for HashAlgo (not case sensitive, default is SHA1):\n")
@@ -1095,7 +1132,8 @@ void ShowUsage()
 		TEXT("  -quiet: No text is displayed or written except the hash value\n")
 		TEXT("  -nowait: avoid displaying the waiting prompt before exiting\n")
 		TEXT("  -hashnames: file names will be included in hash computation\n")
-		TEXT("  -exclude specifies a name pattern for files to exclude from hash computation.\n")
+		TEXT("  -exclude: specifies a name pattern for files to exclude from hash computation.\n")
+		TEXT("  -skipError: ignore any encountered errors and continue processing.\n")
 	);
 }
 
@@ -1175,14 +1213,8 @@ void BenchmarkAlgo(LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard)
 
 		ToHex(pbDigest, pHash->GetHashSize(), szDigestHex);
 
-		if (!bQuiet)
-		{
-			if (outputFile)
-			{
-				_ftprintf(outputFile, _T("%s\n"), (TCHAR*)pbData);
-			}
-			_tprintf(_T("%s\n"), (TCHAR*)pbData);
-		}
+		if (!bQuiet) _tprintf(_T("%s\n"), (TCHAR*)pbData);
+		if (outputFile) _ftprintf(outputFile, _T("%s\n"), (TCHAR*)pbData);
 
 		if (bCopyToClipboard)
 			CopyToClipboard((TCHAR*)pbData);
@@ -1195,7 +1227,8 @@ void BenchmarkAlgo(LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard)
 	}
 	else
 	{
-		_tprintf(_T("Failed to allocate memory for %s benchmark.\n"), hashAlgo);
+		if (!bQuiet) ShowError(_T("Failed to allocate memory for %s benchmark.\n"), hashAlgo);
+		if (outputFile) _ftprintf(outputFile, _T("%s\n"), (TCHAR*)pbData);
 	}
 }
 
@@ -1204,7 +1237,7 @@ void PerformBenchmark(Hash* pHash, bool bQuiet, bool bCopyToClipboard)
 	BenchmarkAlgo(pHash->GetID(), bQuiet, bCopyToClipboard);
 }
 
-void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& bShowProgress, bool& bCopyToClipboard, bool& bIncludeNames, bool& bStripNames, bool& bLowerCase, bool& bUseMsCrypto)
+void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& bShowProgress, bool& bCopyToClipboard, bool& bIncludeNames, bool& bStripNames, bool& bLowerCase, bool& bUseMsCrypto, bool& bSkipError)
 {
 	hashAlgoToUse = L"SHA1";
 	bUseMsCrypto = false;
@@ -1215,6 +1248,7 @@ void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& b
 	bCopyToClipboard = false;
 	bShowProgress = false;
 	bLowerCase = false;
+	bSkipError = false;
 
 	// get values from DirHash.ini fille if it exists
 	WCHAR szInitPath[1024];
@@ -1296,6 +1330,14 @@ void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& b
 					bUseMsCrypto = true;
 				else
 					bUseMsCrypto = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"SkipError", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					bSkipError = true;
+				else
+					bSkipError = false;
 			}
 		}
 	}
@@ -1595,7 +1637,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		return 1;
 	}
 
-	LoadDefaults(hashAlgoToUse, bQuiet, bDontWait, bShowProgress, bCopyToClipboard, bIncludeNames, bStripNames, g_bLowerCase, g_bUseMsCrypto);
+	LoadDefaults(hashAlgoToUse, bQuiet, bDontWait, bShowProgress, bCopyToClipboard, bIncludeNames, bStripNames, g_bLowerCase, g_bUseMsCrypto, g_bSkipError);
 
 	if (_tcscmp(argv[1], _T("-benchmark")) == 0)
 		bBenchmarkOp = true;
@@ -1756,6 +1798,17 @@ int _tmain(int argc, _TCHAR* argv[])
 			else if (_tcscmp(argv[i], _T("-mscrypto")) == 0)
 			{
 				g_bUseMsCrypto = true;
+			}
+			else if (_tcsicmp(argv[i], _T("-skipError")) == 0)
+			{
+				if (bBenchmarkOp)
+				{
+					ShowUsage();
+					ShowError(_T("Error: -skipError can not be combined with -benchmark\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
+				g_bSkipError = true;
 			}
 			else if (Hash::IsHashId(argv[i]))
 			{
