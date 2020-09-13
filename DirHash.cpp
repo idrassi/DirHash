@@ -228,6 +228,7 @@ public:
 	static bool IsHashId(LPCTSTR szHashId);
 	static bool IsHashSize(int size);
 	static Hash* GetHash(LPCTSTR szHashId);
+	static std::vector<std::wstring> GetSupportedHashIds();
 };
 
 #if !defined (_M_ARM64) && !defined (_M_ARM)
@@ -641,6 +642,20 @@ bool Hash::IsHashId(LPCTSTR szHashId)
 	}
 	else
 		return false;
+}
+
+std::vector<std::wstring> Hash::GetSupportedHashIds()
+{
+	std::vector<std::wstring> res;
+
+	res.push_back(L"MD5");
+	res.push_back(L"SHA1");
+	res.push_back(L"SHA256");
+	res.push_back(L"SHA384");
+	res.push_back(L"SHA512");
+	res.push_back(L"Streebog");
+
+	return res;
 }
 
 bool Hash::IsHashSize(int size)
@@ -1115,12 +1130,12 @@ void ShowUsage()
 	ShowLogo();
 	_tprintf(TEXT("Usage: \n")
 		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-skipError] [-exclude pattern1] [-exclude pattern2]\n")
-		TEXT("  DirHash.exe -benchmark [HashAlgo] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait]\n")
+		TEXT("  DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait]\n")
 		TEXT("\n")
 		TEXT("  Possible values for HashAlgo (not case sensitive, default is SHA1):\n")
 		TEXT("  MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n")
 		TEXT("  ResultFileName: text file where the result will be appended\n")
-		TEXT("  -benchmark: perform speed benchmark of the selected algoithm\n")
+		TEXT("  -benchmark: perform speed benchmark of the selected algorithm. If \"All\" is specified, then all algorithms are benchmarked.\n")
 		TEXT("  -mscrypto: use Windows native implementation of hash algorithms (Always enabled on ARM).\n")
 		TEXT("  -sum: output hash of every file processed in a format similar to shasum.\n")
 		TEXT("  -verify: verify hash against value(s) present on the specified file.\n")
@@ -1176,7 +1191,7 @@ void CopyToClipboard(LPCTSTR szDigestHex)
 	}
 }
 
-void BenchmarkAlgo(LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard)
+void BenchmarkAlgo(LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard, std::wstring* outputText)
 {
 #define BENCH_BUFFER_SIZE 50 * 1024 * 1024
 #define BENCH_LOOPS 50
@@ -1219,6 +1234,12 @@ void BenchmarkAlgo(LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard)
 		if (bCopyToClipboard)
 			CopyToClipboard((TCHAR*)pbData);
 
+		if (outputText)
+		{
+			*outputText += (TCHAR*)pbData;
+			*outputText += _T("\n");
+		}
+
 		// restore normal text color
 		SetConsoleTextAttribute(g_hConsole, g_wAttributes);
 
@@ -1234,7 +1255,21 @@ void BenchmarkAlgo(LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard)
 
 void PerformBenchmark(Hash* pHash, bool bQuiet, bool bCopyToClipboard)
 {
-	BenchmarkAlgo(pHash->GetID(), bQuiet, bCopyToClipboard);
+	if (pHash)
+		BenchmarkAlgo(pHash->GetID(), bQuiet, bCopyToClipboard, NULL);
+	else
+	{
+		std::wstring outputText = L"";
+		std::wstring* pOutputText = bCopyToClipboard ? &outputText : NULL;
+		std::vector<std::wstring> hashList = Hash::GetSupportedHashIds();
+		for (std::vector<std::wstring>::const_iterator It = hashList.begin(); It != hashList.end(); It++)
+		{
+			BenchmarkAlgo(It->c_str(), bQuiet, false, pOutputText);
+		}
+
+		if (bCopyToClipboard)
+			CopyToClipboard(outputText.c_str());
+	}
 }
 
 void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& bShowProgress, bool& bCopyToClipboard, bool& bIncludeNames, bool& bStripNames, bool& bLowerCase, bool& bUseMsCrypto, bool& bSkipError)
@@ -1608,6 +1643,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	map < wstring, HashResultEntry> digestsList;
 	map < int, ByteArray> rawDigestsList;
 	ByteArray verifyDigest;
+	bool bBenchmarkAllAlgos = false;
 
 	ZeroMemory(&osvi, sizeof(OSVERSIONINFO));
 	osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
@@ -1814,6 +1850,10 @@ int _tmain(int argc, _TCHAR* argv[])
 			{
 				hashAlgoToUse = argv[i];
 			}
+			else if (bBenchmarkOp && (0 == _tcsicmp(argv[i], _T("All"))))
+			{
+				bBenchmarkAllAlgos = true;
+			}
 			else
 			{
 				if (outputFile) fclose(outputFile);
@@ -1825,14 +1865,17 @@ int _tmain(int argc, _TCHAR* argv[])
 		}
 	}
 
-	pHash = Hash::GetHash(hashAlgoToUse.c_str());
-	if (!pHash || !pHash->IsValid())
+	if (!bBenchmarkAllAlgos)
 	{
-		if (outputFile) fclose(outputFile);
-		if (pHash) delete pHash;
-		ShowError(_T("Error: Failed to initialize the hash algorithm \"%s\"\n"), hashAlgoToUse.c_str());
-		WaitForExit(bDontWait);
-		return 1;
+		pHash = Hash::GetHash(hashAlgoToUse.c_str());
+		if (!pHash || !pHash->IsValid())
+		{
+			if (outputFile) fclose(outputFile);
+			if (pHash) delete pHash;
+			ShowError(_T("Error: Failed to initialize the hash algorithm \"%s\"\n"), hashAlgoToUse.c_str());
+			WaitForExit(bDontWait);
+			return 1;
+		}
 	}
 
 	if (!bQuiet)
@@ -1855,7 +1898,8 @@ int _tmain(int argc, _TCHAR* argv[])
 
 		PerformBenchmark(pHash, bQuiet, bCopyToClipboard);
 
-		delete pHash;
+		if (pHash)
+			delete pHash;
 
 		WaitForExit(bDontWait);
 		return dwError;
