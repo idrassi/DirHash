@@ -99,6 +99,7 @@ static bool g_bCngAvailable = false;
 static LPCTSTR g_szMsProvider = MS_ENH_RSA_AES_PROV;
 static bool g_bMismatchFound = false;
 static bool g_bSkipError = false;
+static bool g_bNoLogo = false;
 
 // Used for sorting directory content
 bool compare_nocase(LPCWSTR first, LPCWSTR second)
@@ -1123,6 +1124,9 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 
 void ShowLogo()
 {
+	if (g_bNoLogo)
+		return;
+
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
 	_tprintf(_T("\nDirHash ") _T(DIRHASH_VERSION) _T(" by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2020\n\n"));
 	_tprintf(_T("Recursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\n"));
@@ -1139,8 +1143,8 @@ void ShowUsage()
 {
 	ShowLogo();
 	_tprintf(TEXT("Usage: \n")
-		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-skipError] [-exclude pattern1] [-exclude pattern2]\n")
-		TEXT("  DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait]\n")
+		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-skipError] [-nologo] [-exclude pattern1] [-exclude pattern2]\n")
+		TEXT("  DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait] [-nologo]\n")
 		TEXT("\n")
 		TEXT("  Possible values for HashAlgo (not case sensitive, default is SHA1):\n")
 		TEXT("  MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n")
@@ -1159,6 +1163,7 @@ void ShowUsage()
 		TEXT("  -hashnames: file names will be included in hash computation\n")
 		TEXT("  -exclude: specifies a name pattern for files to exclude from hash computation.\n")
 		TEXT("  -skipError: ignore any encountered errors and continue processing.\n")
+		TEXT("  -nologo: don't display the copyright message and version number on startup.\n")
 	);
 }
 
@@ -1282,7 +1287,7 @@ void PerformBenchmark(Hash* pHash, bool bQuiet, bool bCopyToClipboard)
 	}
 }
 
-void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& bShowProgress, bool& bCopyToClipboard, bool& bIncludeNames, bool& bStripNames, bool& bLowerCase, bool& bUseMsCrypto, bool& bSkipError)
+void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& bShowProgress, bool& bCopyToClipboard, bool& bIncludeNames, bool& bStripNames, bool& bLowerCase, bool& bUseMsCrypto, bool& bSkipError, bool& bNoLogo)
 {
 	hashAlgoToUse = L"SHA1";
 	bUseMsCrypto = false;
@@ -1383,6 +1388,14 @@ void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& b
 					bSkipError = true;
 				else
 					bSkipError = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"NoLogo", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					bNoLogo = true;
+				else
+					bNoLogo = false;
 			}
 		}
 	}
@@ -1683,7 +1696,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		return 1;
 	}
 
-	LoadDefaults(hashAlgoToUse, bQuiet, bDontWait, bShowProgress, bCopyToClipboard, bIncludeNames, bStripNames, g_bLowerCase, g_bUseMsCrypto, g_bSkipError);
+	LoadDefaults(hashAlgoToUse, bQuiet, bDontWait, bShowProgress, bCopyToClipboard, bIncludeNames, bStripNames, g_bLowerCase, g_bUseMsCrypto, g_bSkipError, g_bNoLogo);
 
 	if (_tcscmp(argv[1], _T("-benchmark")) == 0)
 		bBenchmarkOp = true;
@@ -1855,6 +1868,10 @@ int _tmain(int argc, _TCHAR* argv[])
 					return 1;
 				}
 				g_bSkipError = true;
+			}
+			else if (_tcsicmp(argv[i], _T("-nologo")) == 0)
+			{
+				g_bNoLogo = true;
 			}
 			else if (Hash::IsHashId(argv[i]))
 			{
