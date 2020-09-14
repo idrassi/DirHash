@@ -1049,16 +1049,19 @@ void CopyToClipboard(LPCTSTR szDigestHex)
 
 			// Lock the handle and copy the text to the buffer. 
 			LPVOID lptstrCopy = GlobalLock(hglbCopy);
-			memcpy(lptstrCopy, (const TCHAR*)szDigestHex,
-				(cch * sizeof(TCHAR)) + 1);
-			GlobalUnlock(hglbCopy);
+			if (lptstrCopy)
+			{
+				memcpy(lptstrCopy, (const TCHAR*)szDigestHex,
+					(cch * sizeof(TCHAR)) + 1);
+				GlobalUnlock(hglbCopy);
 
-			// Place the handle on the clipboard. 
+				// Place the handle on the clipboard. 
 #ifdef _UNICODE
-			SetClipboardData(CF_UNICODETEXT, hglbCopy);
+				SetClipboardData(CF_UNICODETEXT, hglbCopy);
 #else
-			SetClipboardData(CF_TEXT, hglbCopy);
+				SetClipboardData(CF_TEXT, hglbCopy);
 #endif
+			}
 		}
 
 		CloseClipboard();
@@ -1087,7 +1090,7 @@ void BenchmarkAlgo(LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard, std::ws
 		}
 		t2 = clock();
 
-		double speed = ((double)BENCH_BUFFER_SIZE * (double)BENCH_LOOPS) / ((double)(t2 - t1) / (double)CLOCKS_PER_SEC);
+		double speed = ((double)BENCH_BUFFER_SIZE * (double)BENCH_LOOPS) / (((double)t2 - (double)t1) / (double)CLOCKS_PER_SEC);
 		if (speed >= (double)(1024 * 1024 * 1024))
 			StringCbPrintf((TCHAR*)pbData, BENCH_BUFFER_SIZE, _T("%s speed = %f GiB/s"), hashAlgo, (speed / (double)(1024 * 1024 * 1024)));
 		else if (speed >= (double)(1024 * 1024))
@@ -1315,7 +1318,7 @@ bool ParseResultLine(wchar_t* szLine, wstring& targetName, wstring& hashName, By
 											// look for digest
 											ptr += 9; // 9 is length of "bytes) = "
 
-											if (wcslen(ptr) == (size_t)(2 * hashLen)) // hexadecimal encoding is double the size in bytes
+											if (wcslen(ptr) == ((size_t) 2 * (size_t) hashLen)) // hexadecimal encoding is double the size in bytes
 											{
 												if (FromHex(ptr, digestValue))
 												{
@@ -1781,9 +1784,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	// Check that the input path plus 3 is not longer than MAX_PATH.
 	// Three characters are for the "\*" plus NULL appended below.
 
-	StringCchLength(argv[1], MAX_PATH, &length_of_arg);
-
-	if (length_of_arg > (MAX_PATH - 3))
+	if ((S_OK != StringCchLength(argv[1], MAX_PATH, &length_of_arg)) || (length_of_arg > (MAX_PATH - 3)))
 	{
 		if (outputFile) fclose(outputFile);
 		delete pHash;
