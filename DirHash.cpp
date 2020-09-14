@@ -67,6 +67,7 @@
 #if !defined (_M_ARM64) && !defined (_M_ARM)
 #include <openssl/sha.h>
 #include <openssl/md5.h>
+#include <openssl/evp.h>
 #endif
 #include <memory>
 #include <string>
@@ -95,8 +96,6 @@ static TCHAR szDigestHex[257];
 static FILE* outputFile = NULL;
 static bool g_bLowerCase = false;
 static bool g_bUseMsCrypto = false;
-static bool g_bCngAvailable = false;
-static LPCTSTR g_szMsProvider = MS_ENH_RSA_AES_PROV;
 static bool g_bMismatchFound = false;
 static bool g_bSkipError = false;
 static bool g_bNoLogo = false;
@@ -237,90 +236,96 @@ public:
 };
 
 #if !defined (_M_ARM64) && !defined (_M_ARM)
-class Md5 : public Hash
+
+class OSSLHash : public Hash
 {
 protected:
-	MD5_CTX m_ctx;
+	EVP_MD_CTX* m_mdctx;
+	const EVP_MD* m_type;
+	int m_initialized;
 public:
-	Md5() : Hash()
+	OSSLHash(const EVP_MD* type) : Hash(), m_type (type), m_initialized(0)
 	{
-		MD5_Init(&m_ctx);
+		m_mdctx = EVP_MD_CTX_new();
+		Init();
 	}
 
-	void Init() { MD5_Init(&m_ctx); }
-	void Update(LPCBYTE pbData, size_t dwLength) { MD5_Update(&m_ctx, pbData, dwLength); }
-	void Final(LPBYTE pbDigest) { MD5_Final(pbDigest, &m_ctx); }
+	virtual ~OSSLHash ()
+	{
+		if (m_mdctx)
+		{
+			EVP_MD_CTX_destroy(m_mdctx);
+			m_mdctx = NULL;
+		}
+	}
+
+	void Init() { 
+		if (m_mdctx) 
+			m_initialized = EVP_DigestInit (m_mdctx, m_type); 
+	}
+
+	void Update(LPCBYTE pbData, size_t dwLength) { 
+		if (m_initialized) 
+			EVP_DigestUpdate (m_mdctx, pbData, dwLength);
+	}
+
+	void Final(LPBYTE pbDigest) {
+		if (m_initialized)
+		{
+			EVP_DigestFinal(m_mdctx, pbDigest, NULL);
+			m_initialized = 0;
+		}
+	}
+
+	int GetHashSize() { return EVP_MD_size (m_type); }
+};
+
+class OSSLMd5 : public OSSLHash
+{
+public:
+	OSSLMd5() : OSSLHash(EVP_md5()) {}
+	~OSSLMd5() {}
+
 	LPCTSTR GetID() { return _T("MD5"); }
-	int GetHashSize() { return 16; }
 };
 
-class Sha1 : public Hash
+class OSSLSha1 : public OSSLHash
 {
-protected:
-	SHA_CTX m_ctx;
 public:
-	Sha1() : Hash()
-	{
-		SHA1_Init(&m_ctx);
-	}
+	OSSLSha1() : OSSLHash(EVP_sha1()) {}
+	~OSSLSha1() {}
 
-	void Init() { SHA1_Init(&m_ctx); }
-	void Update(LPCBYTE pbData, size_t dwLength) { SHA1_Update(&m_ctx, pbData, dwLength); }
-	void Final(LPBYTE pbDigest) { SHA1_Final(pbDigest, &m_ctx); }
 	LPCTSTR GetID() { return _T("SHA1"); }
-	int GetHashSize() { return 20; }
 };
 
-class Sha256 : public Hash
+class OSSLSha256 : public OSSLHash
 {
-protected:
-	SHA256_CTX m_ctx;
 public:
-	Sha256() : Hash()
-	{
-		SHA256_Init(&m_ctx);
-	}
+	OSSLSha256() : OSSLHash(EVP_sha256()) {}
+	~OSSLSha256() {}
 
-	void Init() { SHA256_Init(&m_ctx); }
-	void Update(LPCBYTE pbData, size_t dwLength) { SHA256_Update(&m_ctx, pbData, dwLength); }
-	void Final(LPBYTE pbDigest) { SHA256_Final(pbDigest, &m_ctx); }
 	LPCTSTR GetID() { return _T("SHA256"); }
-	int GetHashSize() { return 32; }
 };
 
-class Sha384 : public Hash
+class OSSLSha384 : public OSSLHash
 {
-protected:
-	SHA512_CTX m_ctx;
 public:
-	Sha384() : Hash()
-	{
-		SHA384_Init(&m_ctx);
-	}
+	OSSLSha384() : OSSLHash(EVP_sha384()) {}
+	~OSSLSha384() {}
 
-	void Init() { SHA384_Init(&m_ctx); }
-	void Update(LPCBYTE pbData, size_t dwLength) { SHA384_Update(&m_ctx, pbData, dwLength); }
-	void Final(LPBYTE pbDigest) { SHA384_Final(pbDigest, &m_ctx); }
 	LPCTSTR GetID() { return _T("SHA384"); }
-	int GetHashSize() { return 48; }
 };
 
-class Sha512 : public Hash
+class OSSLSha512 : public OSSLHash
 {
-protected:
-	SHA512_CTX m_ctx;
 public:
-	Sha512() : Hash()
-	{
-		SHA512_Init(&m_ctx);
-	}
+	OSSLSha512() : OSSLHash(EVP_sha512()) {}
+	~OSSLSha512() {}
 
-	void Init() { SHA512_Init(&m_ctx); }
-	void Update(LPCBYTE pbData, size_t dwLength) { SHA512_Update(&m_ctx, pbData, dwLength); }
-	void Final(LPBYTE pbDigest) { SHA512_Final(pbDigest, &m_ctx); }
 	LPCTSTR GetID() { return _T("SHA512"); }
-	int GetHashSize() { return 64; }
 };
+
+
 #endif
 
 #ifdef USE_STREEBOG
@@ -501,137 +506,6 @@ public:
 	int GetHashSize() { return 64; }
 };
 
-class CapiHash : public Hash
-{
-protected:
-	HCRYPTPROV m_prov;
-	HCRYPTHASH m_hash;
-	ALG_ID m_algId;
-public:
-	CapiHash(ALG_ID algId) : Hash(), m_prov(NULL), m_hash(NULL), m_algId(algId)
-	{
-		Init();
-	}
-
-	virtual ~CapiHash()
-	{
-		Clear();
-	}
-
-	void Clear()
-	{
-		if (m_hash)
-			CryptDestroyHash(m_hash);
-		if (m_prov)
-			CryptReleaseContext(m_prov, 0);
-		m_hash = NULL;
-		m_prov = NULL;
-	}
-
-	virtual bool IsValid() const { return (m_hash != NULL); }
-	virtual bool UsesMSCrypto() const { return true; }
-
-	virtual void Init() {
-		if (CryptAcquireContext(&m_prov, NULL, g_szMsProvider, PROV_RSA_AES, CRYPT_SILENT | CRYPT_VERIFYCONTEXT))
-		{
-			CryptCreateHash(m_prov, m_algId, NULL, 0, &m_hash);
-		}
-	}
-
-	virtual void Update(LPCBYTE pbData, size_t dwLength) {
-		if (IsValid())
-			CryptHashData(m_hash, pbData, (DWORD)dwLength, 0);
-	}
-
-	virtual void Final(LPBYTE pbDigest) {
-		if (IsValid())
-		{
-			DWORD dwHashLen = (DWORD)GetHashSize();
-			CryptGetHashParam(m_hash, HP_HASHVAL, pbDigest, &dwHashLen, 0);
-		}
-	}
-};
-
-
-class Md5Capi : public CapiHash
-{
-public:
-	Md5Capi() : CapiHash(CALG_MD5)
-	{
-
-	}
-
-	~Md5Capi()
-	{
-	}
-
-	LPCTSTR GetID() { return _T("MD5"); }
-	int GetHashSize() { return 16; }
-};
-
-class Sha1Capi : public CapiHash
-{
-public:
-	Sha1Capi() : CapiHash(CALG_SHA1)
-	{
-
-	}
-
-	~Sha1Capi()
-	{
-	}
-
-	LPCTSTR GetID() { return _T("SHA1"); }
-	int GetHashSize() { return 20; }
-};
-
-class Sha256Capi : public CapiHash
-{
-public:
-	Sha256Capi() : CapiHash(CALG_SHA_256)
-	{
-
-	}
-
-	~Sha256Capi()
-	{
-	}
-
-	LPCTSTR GetID() { return _T("SHA256"); }
-	int GetHashSize() { return 32; }
-};
-
-class Sha384Capi : public CapiHash
-{
-public:
-	Sha384Capi() : CapiHash(CALG_SHA_384)
-	{
-
-	}
-
-	~Sha384Capi()
-	{
-	}
-
-	LPCTSTR GetID() { return _T("SHA384"); }
-	int GetHashSize() { return 48; }
-};
-
-class Sha512Capi : public CapiHash
-{
-public:
-	Sha512Capi() : CapiHash(CALG_SHA_512)
-	{
-
-	}
-
-	~Sha512Capi()
-	{
-	}
-
-	LPCTSTR GetID() { return _T("SHA512"); }
-	int GetHashSize() { return 64; }
-};
 
 bool Hash::IsHashId(LPCTSTR szHashId)
 {
@@ -684,70 +558,55 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 	{
 		if (g_bUseMsCrypto)
 		{
-			if (g_bCngAvailable)
-				return new Sha1Cng();
-			else
-				return new Sha1Capi();
+			return new Sha1Cng();
 		}
 #if !defined (_M_ARM64) && !defined (_M_ARM)
 		else
-			return new Sha1();
+			return new OSSLSha1();
 #endif
 	}
 	if (_tcsicmp(szHashId, _T("SHA256")) == 0)
 	{
 		if (g_bUseMsCrypto)
 		{
-			if (g_bCngAvailable)
-				return new Sha256Cng();
-			else
-				return new Sha256Capi();
+			return new Sha256Cng();
 		}
 #if !defined (_M_ARM64) && !defined (_M_ARM)
 		else
-			return new Sha256();
+			return new OSSLSha256();
 #endif
 		}
 	if (_tcsicmp(szHashId, _T("SHA384")) == 0)
 	{
 		if (g_bUseMsCrypto)
 		{
-			if (g_bCngAvailable)
-				return new Sha384Cng();
-			else
-				return new Sha384Capi();
+			return new Sha384Cng();
 		}
 #if !defined (_M_ARM64) && !defined (_M_ARM)
 		else
-			return new Sha384();
+			return new OSSLSha384();
 #endif
 		}
 	if (_tcsicmp(szHashId, _T("SHA512")) == 0)
 	{
 		if (g_bUseMsCrypto)
 		{
-			if (g_bCngAvailable)
-				return new Sha512Cng();
-			else
-				return new Sha512Capi();
+			return new Sha512Cng();
 		}
 #if !defined (_M_ARM64) && !defined (_M_ARM)
 		else
-			return new Sha512();
+			return new OSSLSha512();
 #endif
 		}
 	if (_tcsicmp(szHashId, _T("MD5")) == 0)
 	{
 		if (g_bUseMsCrypto)
 		{
-			if (g_bCngAvailable)
-				return new Md5Cng();
-			else
-				return new Md5Capi();
+			return new Md5Cng();
 		}
 #if !defined (_M_ARM64) && !defined (_M_ARM)
 		else
-			return new Md5();
+			return new OSSLMd5();
 #endif
 		}
 #ifdef USE_STREEBOG
@@ -1659,25 +1518,12 @@ int _tmain(int argc, _TCHAR* argv[])
 	bool bSumMode = false;
 	bool bVerifyMode = false;
 	list<wstring> excludeSpecList;
-	OSVERSIONINFO osvi;
-	bool bIsWindowsX = false;
 	wstring hashAlgoToUse = L"SHA1";
 	bool bBenchmarkOp = false;
 	map < wstring, HashResultEntry> digestsList;
 	map < int, ByteArray> rawDigestsList;
 	ByteArray verifyDigest;
 	bool bBenchmarkAllAlgos = false;
-
-	ZeroMemory(&osvi, sizeof(OSVERSIONINFO));
-	osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
-
-	if (GetWindowsVersion(&osvi))
-		bIsWindowsX = ((osvi.dwMajorVersion == 5) && (osvi.dwMinorVersion == 1));
-
-	g_bCngAvailable = (osvi.dwMajorVersion >= 6);
-
-	if (bIsWindowsX)
-		g_szMsProvider = MS_ENH_RSA_AES_PROV_XP;
 
 	g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 
