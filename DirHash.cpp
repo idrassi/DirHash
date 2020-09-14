@@ -68,6 +68,7 @@
 #include <openssl/sha.h>
 #include <openssl/md5.h>
 #include <openssl/evp.h>
+#include "BLAKE2/sse/blake2.h"
 #else
 #include "BLAKE2/neon/blake2.h"
 #endif
@@ -346,7 +347,7 @@ public:
 	LPCTSTR GetID() { return _T("Blake2b"); }
 };
 
-#else
+#endif
 
 class NeonBlake2s : public Hash
 {
@@ -381,8 +382,6 @@ public:
 	LPCTSTR GetID() { return _T("Blake2b"); }
 	int GetHashSize() { return BLAKE2B_OUTBYTES; }
 };
-
-#endif
 
 #ifdef USE_STREEBOG
 class Streebog : public Hash
@@ -689,19 +688,11 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 	}
 	if (_tcsicmp(szHashId, _T("Blake2s")) == 0)
 	{
-#if !defined (_M_ARM64) && !defined (_M_ARM)
-		return new OSSLBlake2s();
-#else
 		return new NeonBlake2s();
-#endif
 	}
 	if (_tcsicmp(szHashId, _T("Blake2b")) == 0)
 	{
-#if !defined (_M_ARM64) && !defined (_M_ARM)
-		return new OSSLBlake2b();
-#else
 		return new NeonBlake2b();
-#endif
 	}
 	if (_tcsicmp(szHashId, _T("Blake3")) == 0)
 	{

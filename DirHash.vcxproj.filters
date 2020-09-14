@@ -22,6 +22,9 @@
     <Filter Include="Blake2\neon">
       <UniqueIdentifier>{87655d17-10c4-4e6a-9cd0-dcb4dcfe15a4}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Blake2\sse">
+      <UniqueIdentifier>{2d173615-f98e-4557-bcce-efd164f713ad}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DirHash.cpp">
@@ -59,6 +62,12 @@
     </ClCompile>
     <ClCompile Include="BLAKE2\neon\blake2s-neon.c">
       <Filter>Blake2\neon</Filter>
+    </ClCompile>
+    <ClCompile Include="BLAKE2\sse\blake2b.c">
+      <Filter>Blake2\sse</Filter>
+    </ClCompile>
+    <ClCompile Include="BLAKE2\sse\blake2s.c">
+      <Filter>Blake2\sse</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -103,6 +112,36 @@
     </ClInclude>
     <ClInclude Include="BLAKE2\neon\blake2s-round.h">
       <Filter>Blake2\neon</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\sse\blake2.h">
+      <Filter>Blake2\sse</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\sse\blake2b-load-sse2.h">
+      <Filter>Blake2\sse</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\sse\blake2b-load-sse41.h">
+      <Filter>Blake2\sse</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\sse\blake2b-round.h">
+      <Filter>Blake2\sse</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\sse\blake2-config.h">
+      <Filter>Blake2\sse</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\sse\blake2-impl.h">
+      <Filter>Blake2\sse</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\sse\blake2s-load-sse2.h">
+      <Filter>Blake2\sse</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\sse\blake2s-load-sse41.h">
+      <Filter>Blake2\sse</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\sse\blake2s-load-xop.h">
+      <Filter>Blake2\sse</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\sse\blake2s-round.h">
+      <Filter>Blake2\sse</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
