@@ -68,7 +68,10 @@
 #include <openssl/sha.h>
 #include <openssl/md5.h>
 #include <openssl/evp.h>
+#else
+#include "BLAKE2/neon/blake2.h"
 #endif
+#include "BLAKE3/blake3.h"
 #include <memory>
 #include <string>
 #include <list>
@@ -343,7 +346,41 @@ public:
 	LPCTSTR GetID() { return _T("Blake2b"); }
 };
 
+#else
 
+class NeonBlake2s : public Hash
+{
+protected:
+	blake2s_state m_ctx;
+public:
+	NeonBlake2s() : Hash()
+	{
+		Init();
+	}
+
+	void Init() { blake2s_init(&m_ctx, BLAKE2S_OUTBYTES); }
+	void Update(LPCBYTE pbData, size_t dwLength) { blake2s_update(&m_ctx, pbData, dwLength); }
+	void Final(LPBYTE pbDigest) { blake2s_final(&m_ctx, pbDigest, BLAKE2S_OUTBYTES); }
+	LPCTSTR GetID() { return _T("Blake2s"); }
+	int GetHashSize() { return BLAKE2S_OUTBYTES; }
+};
+
+class NeonBlake2b : public Hash
+{
+protected:
+	blake2b_state m_ctx;
+public:
+	NeonBlake2b() : Hash()
+	{
+		Init();
+	}
+
+	void Init() { blake2b_init(&m_ctx, BLAKE2B_OUTBYTES); }
+	void Update(LPCBYTE pbData, size_t dwLength) { blake2b_update(&m_ctx, pbData, dwLength); }
+	void Final(LPBYTE pbDigest) { blake2b_final(&m_ctx, pbDigest, BLAKE2B_OUTBYTES); }
+	LPCTSTR GetID() { return _T("Blake2b"); }
+	int GetHashSize() { return BLAKE2B_OUTBYTES; }
+};
 
 #endif
 
@@ -525,6 +562,23 @@ public:
 	int GetHashSize() { return 64; }
 };
 
+class Blake3Hash : public Hash
+{
+protected:
+	blake3_hasher m_ctx;
+public:
+	Blake3Hash() : Hash()
+	{
+		Init();
+	}
+
+	void Init() { blake3_hasher_init(&m_ctx); }
+	void Update(LPCBYTE pbData, size_t dwLength) { blake3_hasher_update(&m_ctx, pbData, dwLength); }
+	void Final(LPBYTE pbDigest) { blake3_hasher_finalize(&m_ctx, pbDigest, BLAKE3_OUT_LEN); }
+	LPCTSTR GetID() { return _T("Blake3"); }
+	int GetHashSize() { return BLAKE3_OUT_LEN; }
+
+};
 
 bool Hash::IsHashId(LPCTSTR szHashId)
 {
@@ -536,6 +590,7 @@ bool Hash::IsHashId(LPCTSTR szHashId)
 		|| (_tcsicmp(szHashId, _T("Streebog")) == 0)
 		|| (_tcsicmp(szHashId, _T("Blake2s")) == 0)
 		|| (_tcsicmp(szHashId, _T("Blake2b")) == 0)
+		|| (_tcsicmp(szHashId, _T("Blake3")) == 0)
 		)
 	{
 		return true;
@@ -556,6 +611,7 @@ std::vector<std::wstring> Hash::GetSupportedHashIds()
 	res.push_back(L"Streebog");
 	res.push_back(L"Blake2s");
 	res.push_back(L"Blake2b");
+	res.push_back(L"Blake3");
 	return res;
 }
 
@@ -633,11 +689,23 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 	}
 	if (_tcsicmp(szHashId, _T("Blake2s")) == 0)
 	{
+#if !defined (_M_ARM64) && !defined (_M_ARM)
 		return new OSSLBlake2s();
+#else
+		return new NeonBlake2s();
+#endif
 	}
 	if (_tcsicmp(szHashId, _T("Blake2b")) == 0)
 	{
+#if !defined (_M_ARM64) && !defined (_M_ARM)
 		return new OSSLBlake2b();
+#else
+		return new NeonBlake2b();
+#endif
+	}
+	if (_tcsicmp(szHashId, _T("Blake3")) == 0)
+	{
+		return new Blake3Hash();
 	}
 #ifdef USE_STREEBOG
 	if (_tcsicmp(szHashId, _T("Streebog")) == 0)

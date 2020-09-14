@@ -13,6 +13,15 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav</Extensions>
     </Filter>
+    <Filter Include="Blake3">
+      <UniqueIdentifier>{b90ecac3-c4e5-4d2a-94de-7f65439665d1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Blake2">
+      <UniqueIdentifier>{803b7d2c-356d-4030-926b-0af69656dc29}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Blake2\neon">
+      <UniqueIdentifier>{87655d17-10c4-4e6a-9cd0-dcb4dcfe15a4}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DirHash.cpp">
@@ -23,6 +32,33 @@
     </ClCompile>
     <ClCompile Include="Streebog.c">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BLAKE3\blake3.c">
+      <Filter>Blake3</Filter>
+    </ClCompile>
+    <ClCompile Include="BLAKE3\blake3_avx2.c">
+      <Filter>Blake3</Filter>
+    </ClCompile>
+    <ClCompile Include="BLAKE3\blake3_avx512.c">
+      <Filter>Blake3</Filter>
+    </ClCompile>
+    <ClCompile Include="BLAKE3\blake3_dispatch.c">
+      <Filter>Blake3</Filter>
+    </ClCompile>
+    <ClCompile Include="BLAKE3\blake3_neon.c">
+      <Filter>Blake3</Filter>
+    </ClCompile>
+    <ClCompile Include="BLAKE3\blake3_portable.c">
+      <Filter>Blake3</Filter>
+    </ClCompile>
+    <ClCompile Include="BLAKE3\blake3_sse41.c">
+      <Filter>Blake3</Filter>
+    </ClCompile>
+    <ClCompile Include="BLAKE2\neon\blake2b-neon.c">
+      <Filter>Blake2\neon</Filter>
+    </ClCompile>
+    <ClCompile Include="BLAKE2\neon\blake2s-neon.c">
+      <Filter>Blake2\neon</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -44,10 +80,45 @@
     <ClInclude Include="Streebog.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="BLAKE3\blake3.h">
+      <Filter>Blake3</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE3\blake3_impl.h">
+      <Filter>Blake3</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\neon\blake2.h">
+      <Filter>Blake2\neon</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\neon\blake2b-load-neon.h">
+      <Filter>Blake2\neon</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\neon\blake2b-round.h">
+      <Filter>Blake2\neon</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\neon\blake2-impl.h">
+      <Filter>Blake2\neon</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\neon\blake2s-load-neon.h">
+      <Filter>Blake2\neon</Filter>
+    </ClInclude>
+    <ClInclude Include="BLAKE2\neon\blake2s-round.h">
+      <Filter>Blake2\neon</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="DirHash.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <MASM Include="BLAKE3\blake3_avx2_x86-64_windows_msvc.asm">
+      <Filter>Blake3</Filter>
+    </MASM>
+    <MASM Include="BLAKE3\blake3_avx512_x86-64_windows_msvc.asm">
+      <Filter>Blake3</Filter>
+    </MASM>
+    <MASM Include="BLAKE3\blake3_sse41_x86-64_windows_msvc.asm">
+      <Filter>Blake3</Filter>
+    </MASM>
   </ItemGroup>
 </Project>
