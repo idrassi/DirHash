@@ -21,7 +21,6 @@ extern "C" {
 typedef STREEBOG_ALIGN(16) struct _STREEBOG_CTX
 {
 	STREEBOG_ALIGN(16) unsigned char buffer[64];
-	STREEBOG_ALIGN(16) unsigned long long hash[8];
 	STREEBOG_ALIGN(16) unsigned long long h[8];
 	STREEBOG_ALIGN(16) unsigned long long N[8];
 	STREEBOG_ALIGN(16) unsigned long long Sigma[8];
