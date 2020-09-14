@@ -1124,7 +1124,13 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 void ShowLogo()
 {
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-	_tprintf(_T("\nDirHash ") _T(DIRHASH_VERSION) _T(" by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2020\n\nRecursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\nSupported Algorithms : MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n"));
+	_tprintf(_T("\nDirHash ") _T(DIRHASH_VERSION) _T(" by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2020\n\n"));
+	_tprintf(_T("Recursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\n"));
+	_tprintf(_T("Supported Algorithms :"));
+	std::vector<std::wstring> algos = Hash::GetSupportedHashIds();
+	for (size_t i = 0; i < algos.size(); i++)
+		_tprintf(_T(" %s"), algos[i].c_str());
+	_tprintf(_T("\n\n"));
 	SetConsoleTextAttribute(g_hConsole, g_wAttributes);
 }
 
