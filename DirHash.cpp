@@ -325,6 +325,25 @@ public:
 	LPCTSTR GetID() { return _T("SHA512"); }
 };
 
+class OSSLBlake2s : public OSSLHash
+{
+public:
+	OSSLBlake2s() : OSSLHash(EVP_blake2s256()) {}
+	~OSSLBlake2s() {}
+
+	LPCTSTR GetID() { return _T("Blake2s"); }
+};
+
+class OSSLBlake2b : public OSSLHash
+{
+public:
+	OSSLBlake2b() : OSSLHash(EVP_blake2b512()) {}
+	~OSSLBlake2b() {}
+
+	LPCTSTR GetID() { return _T("Blake2b"); }
+};
+
+
 
 #endif
 
@@ -515,6 +534,8 @@ bool Hash::IsHashId(LPCTSTR szHashId)
 		|| (_tcsicmp(szHashId, _T("SHA512")) == 0)
 		|| (_tcsicmp(szHashId, _T("MD5")) == 0)
 		|| (_tcsicmp(szHashId, _T("Streebog")) == 0)
+		|| (_tcsicmp(szHashId, _T("Blake2s")) == 0)
+		|| (_tcsicmp(szHashId, _T("Blake2b")) == 0)
 		)
 	{
 		return true;
@@ -533,7 +554,8 @@ std::vector<std::wstring> Hash::GetSupportedHashIds()
 	res.push_back(L"SHA384");
 	res.push_back(L"SHA512");
 	res.push_back(L"Streebog");
-
+	res.push_back(L"Blake2s");
+	res.push_back(L"Blake2b");
 	return res;
 }
 
@@ -575,7 +597,7 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 		else
 			return new OSSLSha256();
 #endif
-		}
+	}
 	if (_tcsicmp(szHashId, _T("SHA384")) == 0)
 	{
 		if (g_bUseMsCrypto)
@@ -586,7 +608,7 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 		else
 			return new OSSLSha384();
 #endif
-		}
+	}
 	if (_tcsicmp(szHashId, _T("SHA512")) == 0)
 	{
 		if (g_bUseMsCrypto)
@@ -597,7 +619,7 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 		else
 			return new OSSLSha512();
 #endif
-		}
+	}
 	if (_tcsicmp(szHashId, _T("MD5")) == 0)
 	{
 		if (g_bUseMsCrypto)
@@ -608,7 +630,15 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 		else
 			return new OSSLMd5();
 #endif
-		}
+	}
+	if (_tcsicmp(szHashId, _T("Blake2s")) == 0)
+	{
+		return new OSSLBlake2s();
+	}
+	if (_tcsicmp(szHashId, _T("Blake2b")) == 0)
+	{
+		return new OSSLBlake2b();
+	}
 #ifdef USE_STREEBOG
 	if (_tcsicmp(szHashId, _T("Streebog")) == 0)
 	{
