@@ -329,23 +329,6 @@ public:
 	LPCTSTR GetID() { return _T("SHA512"); }
 };
 
-class OSSLBlake2s : public OSSLHash
-{
-public:
-	OSSLBlake2s() : OSSLHash(EVP_blake2s256()) {}
-	~OSSLBlake2s() {}
-
-	LPCTSTR GetID() { return _T("Blake2s"); }
-};
-
-class OSSLBlake2b : public OSSLHash
-{
-public:
-	OSSLBlake2b() : OSSLHash(EVP_blake2b512()) {}
-	~OSSLBlake2b() {}
-
-	LPCTSTR GetID() { return _T("Blake2b"); }
-};
 
 #endif
 
