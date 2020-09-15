@@ -382,6 +382,16 @@ public:
 	void Final(LPBYTE pbDigest) { STREEBOG_finalize(&m_ctx, pbDigest); }
 	LPCTSTR GetID() { return _T("Streebog"); }
 	int GetHashSize() { return 64; }
+
+	void* operator new(size_t i)
+    {
+        return _mm_malloc(i,16);
+    }
+
+    void operator delete(void* p)
+    {
+        _mm_free(p);
+    }
 };
 #endif
 
