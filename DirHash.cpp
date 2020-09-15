@@ -237,6 +237,16 @@ public:
 	static bool IsHashSize(int size);
 	static Hash* GetHash(LPCTSTR szHashId);
 	static std::vector<std::wstring> GetSupportedHashIds();
+
+	void* operator new(size_t i)
+	{
+		return _mm_malloc(i, 16);
+	}
+
+	void operator delete(void* p)
+	{
+		_mm_free(p);
+	}
 };
 
 #if !defined (_M_ARM64) && !defined (_M_ARM)
@@ -382,16 +392,6 @@ public:
 	void Final(LPBYTE pbDigest) { STREEBOG_finalize(&m_ctx, pbDigest); }
 	LPCTSTR GetID() { return _T("Streebog"); }
 	int GetHashSize() { return 64; }
-
-	void* operator new(size_t i)
-    {
-        return _mm_malloc(i,16);
-    }
-
-    void operator delete(void* p)
-    {
-        _mm_free(p);
-    }
 };
 #endif
 
