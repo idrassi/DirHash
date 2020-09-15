@@ -375,7 +375,7 @@ public:
 	Streebog() : Hash()
 	{
 		STREEBOG_init(&m_ctx);
-}
+	}
 
 	void Init() { STREEBOG_init(&m_ctx); }
 	void Update(LPCBYTE pbData, size_t dwLength) { STREEBOG_add(&m_ctx, pbData, dwLength); }
@@ -1077,7 +1077,7 @@ void ShowUsage()
 		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-skipError] [-nologo] [-exclude pattern1] [-exclude pattern2]\n")
 		TEXT("  DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait] [-nologo]\n")
 		TEXT("\n")
-		TEXT("  Possible values for HashAlgo (not case sensitive, default is SHA1):\n"));
+		TEXT("  Possible values for HashAlgo (not case sensitive, default is Blake3):\n"));
 	   _tprintf(_T(" "));
 		std::vector<std::wstring> algos = Hash::GetSupportedHashIds();
 		for (size_t i = 0; i < algos.size(); i++)
@@ -1228,7 +1228,7 @@ void PerformBenchmark(Hash* pHash, bool bQuiet, bool bCopyToClipboard)
 
 void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& bShowProgress, bool& bCopyToClipboard, bool& bIncludeNames, bool& bStripNames, bool& bLowerCase, bool& bUseMsCrypto, bool& bSkipError, bool& bNoLogo)
 {
-	hashAlgoToUse = L"SHA1";
+	hashAlgoToUse = L"Blake3";
 	bUseMsCrypto = false;
 	bDontWait = false;
 	bIncludeNames = false;
@@ -1252,7 +1252,7 @@ void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& b
 			StringCbCatW(szInitPath, sizeof(szInitPath), L"DirHash.ini");
 
 			WCHAR szValue[128];
-			if (GetPrivateProfileStringW(L"Defaults", L"Hash", L"SHA1", szValue, ARRAYSIZE(szValue), szInitPath) && Hash::IsHashId (szValue))
+			if (GetPrivateProfileStringW(L"Defaults", L"Hash", L"Blake3", szValue, ARRAYSIZE(szValue), szInitPath) && Hash::IsHashId (szValue))
 			{
 				hashAlgoToUse = szValue;
 			}
@@ -1598,7 +1598,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	bool bSumMode = false;
 	bool bVerifyMode = false;
 	list<wstring> excludeSpecList;
-	wstring hashAlgoToUse = L"SHA1";
+	wstring hashAlgoToUse = L"Blake3";
 	bool bBenchmarkOp = false;
 	map < wstring, HashResultEntry> digestsList;
 	map < int, ByteArray> rawDigestsList;
