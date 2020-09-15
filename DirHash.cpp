@@ -82,7 +82,7 @@
 #include "Streebog.h"
 #endif
 
-#define DIRHASH_VERSION	"1.11.0"
+#define DIRHASH_VERSION	"1.12.0"
 
 
 using namespace std;
@@ -1061,7 +1061,7 @@ void ShowLogo()
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
 	_tprintf(_T("\nDirHash ") _T(DIRHASH_VERSION) _T(" by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2020\n\n"));
 	_tprintf(_T("Recursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\n"));
-	_tprintf(_T("Supported Algorithms :"));
+	_tprintf(_T("Supported Algorithms :\n"));
 	std::vector<std::wstring> algos = Hash::GetSupportedHashIds();
 	for (size_t i = 0; i < algos.size(); i++)
 		_tprintf(_T(" %s"), algos[i].c_str());
@@ -1077,8 +1077,12 @@ void ShowUsage()
 		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-skipError] [-nologo] [-exclude pattern1] [-exclude pattern2]\n")
 		TEXT("  DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait] [-nologo]\n")
 		TEXT("\n")
-		TEXT("  Possible values for HashAlgo (not case sensitive, default is SHA1):\n")
-		TEXT("  MD5, SHA1, SHA256, SHA384, SHA512 and Streebog\n\n")
+		TEXT("  Possible values for HashAlgo (not case sensitive, default is SHA1):\n"));
+	   _tprintf(_T(" "));
+		std::vector<std::wstring> algos = Hash::GetSupportedHashIds();
+		for (size_t i = 0; i < algos.size(); i++)
+			_tprintf(_T(" %s"), algos[i].c_str());
+		_tprintf(_T("\n\n")
 		TEXT("  ResultFileName: text file where the result will be appended\n")
 		TEXT("  -benchmark: perform speed benchmark of the selected algorithm. If \"All\" is specified, then all algorithms are benchmarked.\n")
 		TEXT("  -mscrypto: use Windows native implementation of hash algorithms (Always enabled on ARM).\n")
@@ -1096,6 +1100,7 @@ void ShowUsage()
 		TEXT("  -skipError: ignore any encountered errors and continue processing.\n")
 		TEXT("  -nologo: don't display the copyright message and version number on startup.\n")
 	);
+	_tprintf(_T("\n"));
 }
 
 void WaitForExit(bool bDontWait = false)

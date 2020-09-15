@@ -12,9 +12,9 @@ Home page: https://idrassi.github.io/DirHash/
 Usage
 ------------
 
-DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-verify FileName] [-clip] [-lowercase] [-overwrite] [-quiet] [-nowait] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] 
+DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-verify FileName] [-clip] [-lowercase] [-overwrite] [-quiet] [-nologo] [-nowait] [-skipError] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] 
 
-DirHash.exe -benchmark [HashAlgo] [-t ResultFileName] [-clip] [-overwrite] [-quiet] [-nowait]
+DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-clip] [-overwrite] [-quiet] [-nologo] [-nowait]
 
 Possible values for HashAlgo (not case sensitive):
 - MD5
@@ -23,6 +23,9 @@ Possible values for HashAlgo (not case sensitive):
 - SHA384
 - SHA512
 - Streebog
+- Blake2s
+- Blake2b
+- Blake3
 
 If HashAlgo is not specified, SHA-1 is used by default.
 
@@ -54,6 +57,10 @@ If -stripnames is specified (only when -hashnames also specified), only the the 
 
 If -exclude is specified, it must be followed by a string indicating the file type that must be excluded from the hash computation. For example, to exclude .log files, you specify "-exclude *.log". This switch can be repeated many times in the command line to specify different file types to exclude.
 
+If -skipError is specified, ignore any encountered errors and continue processing.
+
+If -nologo is specified, don't display the copyright message and version number on startup.
+
 DirHash can also be configured using a configuration file called DirHash.ini and which must be on the same folder as DirHash.exe.
 An example of DirHash.ini is shown below:
 
@@ -61,6 +68,7 @@ An example of DirHash.ini is shown below:
 [Defaults]
 Hash=SHA1
 Quiet=False
+Nologo=True
 NoWait=True
 ShowProgress=False
 clip=True
