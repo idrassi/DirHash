@@ -27,7 +27,7 @@ Possible values for HashAlgo (not case sensitive):
 - Blake2b
 - Blake3
 
-If HashAlgo is not specified, SHA-1 is used by default.
+If HashAlgo is not specified, Blake3 is used by default.
 
 ResultFileName specifies an optional text file where the result will be appended.
 
@@ -66,7 +66,7 @@ An example of DirHash.ini is shown below:
 
 ```
 [Defaults]
-Hash=SHA1
+Hash=Blake3
 Quiet=False
 Nologo=True
 NoWait=True
