@@ -61,6 +61,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <tchar.h>
+#include <fcntl.h>
 #include <io.h>
 #include <time.h>
 #include <strsafe.h>
@@ -219,6 +220,35 @@ BOOL GetWindowsVersion(OSVERSIONINFOW* pOSversion)
 
 	return bRet;
 }
+
+// ---------------------------------------------
+/*
+ * This class is used to make Windows console where we are ruuning compatible with printing UNICODE characters
+ * Note that in order to display UNICODE characters correctly, the console should be using a font that support
+ * this UNICODE characters. "Courier New" font is a good choice.
+ */
+class CConsoleUnicodeOutputInitializer
+{
+protected:
+	UINT m_originalCP;
+
+public:
+	CConsoleUnicodeOutputInitializer()
+	{
+		m_originalCP = GetConsoleOutputCP();
+		
+		SetConsoleOutputCP(CP_UTF8);
+		_setmode(_fileno(stdout), _O_U16TEXT);
+	}
+
+	~CConsoleUnicodeOutputInitializer()
+	{
+		SetConsoleOutputCP(m_originalCP);
+	}
+
+};
+
+
 
 // ---------------------------------------------
 
@@ -1502,7 +1532,8 @@ bool ParseResultFile(const wchar_t* resultFile, map<wstring, HashResultEntry>& p
 bool ParseSumFile(const wchar_t* sumFile, map<wstring, HashResultEntry>& digestList)
 {
 	bool bRet = false;
-	FILE* f = _wfopen(sumFile, L"rt");
+	// SUM files are created using UTF-8 encoding in order to support UNICODE file names
+	FILE* f = _wfopen(sumFile, L"rt,ccs=UTF-8");
 	if (f)
 	{
 		bool bFailed = false;
@@ -1614,6 +1645,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	map < int, ByteArray> rawDigestsList;
 	ByteArray verifyDigest;
 	bool bBenchmarkAllAlgos = false;
+	CConsoleUnicodeOutputInitializer conUnicode;
 
 	g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 
@@ -1846,7 +1878,10 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	if (!outputFileName.empty())
 	{
-		outputFile = _tfopen(outputFileName.c_str(), bOverwrite ? _T("wt") : _T("a+t"));
+		if (bSumMode)
+			outputFile = _tfopen(outputFileName.c_str(), bOverwrite ? _T("wt,ccs=UTF-8") : _T("a+t,ccs=UTF-8"));
+		else
+			outputFile = _tfopen(outputFileName.c_str(), bOverwrite ? _T("wt") : _T("a+t"));
 		if (!outputFile)
 		{
 			if (!bQuiet)
