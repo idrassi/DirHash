@@ -1468,7 +1468,8 @@ bool ParseResultLine(wchar_t* szLine, wstring& targetName, wstring& hashName, By
 bool ParseResultFile(const wchar_t* resultFile, map<wstring, HashResultEntry>& pathDigestList, map<int, ByteArray>& rawDigestList)
 {
 	bool bRet = false;
-	FILE* f = _wfopen(resultFile, L"rt");
+	// Result files are created using UTF-8 encoding in order to support UNICODE file names
+	FILE* f = _wfopen(resultFile, L"rt,ccs=UTF-8");
 	if (f)
 	{
 		bool bFailed = false;
@@ -1885,10 +1886,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	if (!outputFileName.empty())
 	{
-		if (bSumMode)
-			outputFile = _tfopen(outputFileName.c_str(), bOverwrite ? _T("wt,ccs=UTF-8") : _T("a+t,ccs=UTF-8"));
-		else
-			outputFile = _tfopen(outputFileName.c_str(), bOverwrite ? _T("wt") : _T("a+t"));
+		outputFile = _tfopen(outputFileName.c_str(), bOverwrite ? _T("wt,ccs=UTF-8") : _T("a+t,ccs=UTF-8"));
 		if (!outputFile)
 		{
 			if (!bQuiet)
