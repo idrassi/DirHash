@@ -75,6 +75,7 @@
 #endif
 #include "BLAKE3/blake3.h"
 #include <memory>
+#include <algorithm>
 #include <string>
 #include <list>
 #include <map>
@@ -1564,6 +1565,9 @@ bool ParseSumFile(const wchar_t* sumFile, map<wstring, HashResultEntry>& digestL
 				// look for begining of file path
 				while (ptr != &szLine[l - 1] && *ptr == L' ')
 					ptr++;
+				// remove '*' if present (this is for unix checksum compatibility)
+				if (ptr != &szLine[l - 1] && *ptr == L'*')
+					ptr++;
 				if (ptr != &szLine[l - 1])
 				{
 					// hash length must be one of the supported ones (16, 20, 32, 48, 64)
@@ -1574,8 +1578,11 @@ bool ParseSumFile(const wchar_t* sumFile, map<wstring, HashResultEntry>& digestL
 							|| (digestLen == 0 && Hash::IsHashSize ((int) digest.size()))
 							)
 						{
+							wstring entryName = ptr;
+							// replace '/' by '\' for compatibility with checksum format on *nix platforms
+							std::replace(entryName.begin(), entryName.end(), L'/', L'\\');
 							digestLen = digest.size();
-							digestList[ptr].m_digest = digest;
+							digestList[entryName].m_digest = digest;
 						}
 						else
 						{
