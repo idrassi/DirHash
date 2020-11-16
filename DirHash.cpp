@@ -738,12 +738,13 @@ class HashResultEntry
 public:
 	wstring m_hashName;
 	ByteArray m_digest;
+	mutable bool m_processed;
 
-	HashResultEntry() : m_hashName(L"") {}
-	HashResultEntry(const HashResultEntry& hre) : m_hashName(hre.m_hashName), m_digest(hre.m_digest) {}
+	HashResultEntry() : m_hashName(L""), m_processed (false){}
+	HashResultEntry(const HashResultEntry& hre) : m_hashName(hre.m_hashName), m_digest(hre.m_digest), m_processed (hre.m_processed) {}
 	~HashResultEntry() {}
 
-	HashResultEntry& operator = (const HashResultEntry& hre) { m_hashName = hre.m_hashName; m_digest = hre.m_digest; return *this; }
+	HashResultEntry& operator = (const HashResultEntry& hre) { m_hashName = hre.m_hashName; m_digest = hre.m_digest; m_processed = hre.m_processed; return *this; }
 };
 
 class CDirContent
@@ -882,7 +883,10 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 				}
 			}
 			else
+			{
+				It->second.m_processed = true;
 				bSumVerificationMode = true;
+			}
 		}
 		pHash = Hash::GetHash(pHash->GetID());
 	}
@@ -2021,6 +2025,54 @@ int _tmain(int argc, _TCHAR* argv[])
 		{
 			if (bVerifyMode)
 			{
+				// check if some entries in SUM files where not processed
+				size_t skippedEntries = 0;
+				for (std::map<wstring, HashResultEntry>::iterator It = digestsList.begin(); It != digestsList.end(); It++)
+				{
+					if (!It->second.m_processed)
+						skippedEntries++;
+				}
+
+				if (skippedEntries)
+				{
+					if (!bQuiet)
+					{
+						if (skippedEntries == 1)
+							ShowWarning(_T("1 entry in \"%s\" was not found:\n"), verificationFileName.c_str());
+						else
+							ShowWarning(_T("%lu entries in \"%s\" where not found:\n"), (unsigned long)skippedEntries, verificationFileName.c_str());
+					}
+					if (outputFile)
+					{
+						if (skippedEntries == 1)
+							_ftprintf(outputFile, _T("1 entry in \"%s\" was not found:\n"), verificationFileName.c_str());
+						else
+							_ftprintf(outputFile, _T("%lu entries in \"%s\" where not found:\n"), (unsigned long)skippedEntries, verificationFileName.c_str());
+					}
+
+					unsigned long counter = 1;
+					for (std::map<wstring, HashResultEntry>::iterator It = digestsList.begin(); It != digestsList.end(); It++)
+					{
+						if (!It->second.m_processed)
+						{
+							if (!bQuiet)
+								ShowWarning(_T(" %lu - %s\n"), counter, It->first.c_str());
+							if (outputFile)
+								_ftprintf(outputFile, _T(" %lu - %s\n"), counter, It->first.c_str());
+							counter++;
+						}
+					}
+
+					if (!bQuiet)
+						_tprintf(_T("\n"));
+					if (outputFile)
+						_ftprintf(outputFile, _T("\n"));
+
+					// report error
+					g_bMismatchFound = true;
+						
+				}
+
 				if (g_bMismatchFound)
 				{
 					if (!bQuiet)
