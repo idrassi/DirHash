@@ -110,9 +110,12 @@ static HANDLE g_hThreads[256];
 static WORD ThreadProcessorGroups[256] = { 0 };
 static DWORD g_threadsCount = 0;
 static volatile bool g_bStopThreads = false;
+static volatile bool g_bStopOutputThread = false;
 static HANDLE g_hReadyEvent = NULL;
 static HANDLE g_hStopEvent = NULL;
-static CRITICAL_SECTION g_outputLock;
+static HANDLE g_hOutputReadyEvent = NULL;
+static HANDLE g_hOutputStopEvent = NULL;
+static HANDLE g_hOutputThread = NULL;
 
 
 typedef BOOL(WINAPI* SetThreadGroupAffinityFn)(
@@ -897,16 +900,36 @@ typedef struct _JOB_ITEM {
 	threadParam* pParam;
 } JOB_ITEM, * PJOB_ITEM;
 
-PSLIST_HEADER g_jobsList = NULL;
+typedef struct _OUTPUT_ITEM {
+	SLIST_ENTRY ItemEntry;
+	std::wstring* pParam;
+	bool bQuiet;
+} OUTPUT_ITEM, * POUTPUT_ITEM;
 
-void AddHashJobEntry(threadParam* pParam, PSLIST_HEADER pList)
+PSLIST_HEADER g_jobsList = NULL;
+PSLIST_HEADER g_outputsList = NULL;
+
+void AddHashJobEntry(threadParam* pParam)
 {
 	JOB_ITEM* pJobItem = (JOB_ITEM*)_aligned_malloc(sizeof(JOB_ITEM), MEMORY_ALLOCATION_ALIGNMENT);
 	if (NULL == pJobItem)
 		return;
 
 	pJobItem->pParam = pParam;
-	InterlockedPushEntrySList(pList, &(pJobItem->ItemEntry));
+	InterlockedPushEntrySList(g_jobsList, &(pJobItem->ItemEntry));
+}
+
+void AddOutputEntry(std::wstring* pParam, bool bQuiet)
+{
+	OUTPUT_ITEM* pOutputItem = (OUTPUT_ITEM*)_aligned_malloc(sizeof(OUTPUT_ITEM), MEMORY_ALLOCATION_ALIGNMENT);
+	if (NULL == pOutputItem)
+		return;
+
+	pOutputItem->pParam = pParam;
+	pOutputItem->bQuiet = bQuiet;
+	InterlockedPushEntrySList(g_outputsList, &(pOutputItem->ItemEntry));
+
+	SetEvent(g_hOutputReadyEvent);
 }
 
 void AddHashJob(FILE* f, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, Hash* pHash)
@@ -925,7 +948,7 @@ void AddHashJob(FILE* f, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bo
 	}
 	p->pHash = pHash;
 
-	AddHashJobEntry(p, g_jobsList);
+	AddHashJobEntry(p);
 
 	SetEvent(g_hReadyEvent);
 }
@@ -963,29 +986,85 @@ void ProcessFile(FILE* f, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, b
 			if (memcmp(pbSumDigest, pbExpectedDigest, pHash->GetHashSize()))
 			{
 				g_bMismatchFound = true;
-				if (g_threadsCount && (!bQuiet || outputFile)) EnterCriticalSection(&g_outputLock);
-				if (!bQuiet) Trace(_T("Hash value mismatch for \"%s\"\n"), szFilePath);
-				if (outputFile) _ftprintf(outputFile, _T("Hash value mismatch for \"%s\"\n"), szFilePath);
-				if (g_threadsCount && (!bQuiet || outputFile)) LeaveCriticalSection(&g_outputLock);
+
+				std::wstring szMsg = L"Hash value mismatch for \"";
+				szMsg += szFilePath;
+				szMsg += L"\"\n";
+
+				if (g_threadsCount)
+				{
+					if (!bQuiet || outputFile)
+					{
+						AddOutputEntry(new std::wstring(szMsg), bQuiet);
+					}
+				}
+				else
+				{
+					if (!bQuiet) Trace(szMsg.c_str());
+					if (outputFile) _ftprintf(outputFile, szMsg.c_str());
+				}				
 			}
 		}
 		else
 		{
 			ToHex(pbSumDigest, pHash->GetHashSize(), szDigestHex);
-			if (g_threadsCount && (!bQuiet || outputFile)) EnterCriticalSection(&g_outputLock);
-			if (!bQuiet) Trace(_T("%s  %s\n"), szDigestHex, szFilePath);
-			if (outputFile) _ftprintf(outputFile, _T("%s  %s\n"), szDigestHex, szFilePath);
-			if (g_threadsCount && (!bQuiet || outputFile)) LeaveCriticalSection(&g_outputLock);
+
+			std::wstring szMsg = szDigestHex;
+			szMsg += L"  ";
+			szMsg += szFilePath;
+			szMsg += L"\n";
+
+			if (g_threadsCount)
+			{
+				if (!bQuiet || outputFile)
+				{
+					AddOutputEntry(new std::wstring(szMsg), bQuiet);
+				}
+			}
+			else
+			{
+				if (!bQuiet) Trace(szMsg.c_str());
+				if (outputFile) _ftprintf(outputFile, szMsg.c_str());
+			}
 		}
 	}
+}
+
+DWORD WINAPI OutputThreadCode(LPVOID pArg)
+{
+	HANDLE syncObjs[2] = { g_hOutputReadyEvent, g_hOutputStopEvent };
+
+	SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
+
+	while (true)
+	{
+		std::wstring* p = NULL;
+		OUTPUT_ITEM* pOutput;
+		
+		while ((pOutput = (OUTPUT_ITEM*)InterlockedPopEntrySList(g_outputsList)))
+		{
+			p = pOutput->pParam;
+			if (!pOutput->bQuiet) Trace(p->c_str());
+			if (outputFile) _ftprintf(outputFile, p->c_str());
+			delete p;
+			_aligned_free(pOutput);
+		}
+
+		if (g_bStopOutputThread)
+			break;
+		else
+		{
+			WaitForMultipleObjects(2, syncObjs, FALSE, INFINITE);
+		}
+	}
+
+	return 0;
 }
 
 DWORD WINAPI ThreadCode(LPVOID pArg)
 {
 	BYTE pbBuffer[4096];
 	HANDLE syncObjs[2] = { g_hReadyEvent, g_hStopEvent };
-
-	SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
 
 	SetThreadGroupAffinityFn SetThreadGroupAffinityPtr = (SetThreadGroupAffinityFn)GetProcAddress(GetModuleHandle(L"kernel32.dll"), "SetThreadGroupAffinity");
 	if (SetThreadGroupAffinityPtr && pArg)
@@ -1065,12 +1144,14 @@ void StartThreads()
 		return;
 
 	g_jobsList = (PSLIST_HEADER)_aligned_malloc(sizeof(SLIST_HEADER), MEMORY_ALLOCATION_ALIGNMENT);
+	g_outputsList = (PSLIST_HEADER)_aligned_malloc(sizeof(SLIST_HEADER), MEMORY_ALLOCATION_ALIGNMENT);
 	InitializeSListHead(g_jobsList);
+	InitializeSListHead(g_outputsList);
 
 	g_hReadyEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 	g_hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-
-	InitializeCriticalSection(&g_outputLock);
+	g_hOutputReadyEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+	g_hOutputStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
 	for (ThreadCount = 0; ThreadCount < (uint32) cpuCount; ++ThreadCount)
 	{
@@ -1100,10 +1181,12 @@ void StartThreads()
 			pThreadArg = &ThreadProcessorGroups[ThreadCount];
 		}
 
-		g_hThreads[ThreadCount] = (HANDLE)CreateThread(NULL, 0, ThreadCode, (void*)pThreadArg, 0, NULL);
+		g_hThreads[ThreadCount] = CreateThread(NULL, 0, ThreadCode, (void*)pThreadArg, 0, NULL);
 	}
 
 	g_threadsCount = ThreadCount;
+
+	g_hOutputThread = CreateThread(NULL, 0, OutputThreadCode, NULL, 0, NULL);
 }
 
 void StopThreads()
@@ -1122,10 +1205,19 @@ void StopThreads()
 		CloseHandle(g_hReadyEvent);
 		CloseHandle(g_hStopEvent);
 
-		DeleteCriticalSection(&g_outputLock);
+		g_bStopOutputThread = true;
+		SetEvent(g_hOutputStopEvent);
+
+		WaitForSingleObject(g_hOutputThread, INFINITE);
+		CloseHandle(g_hOutputThread);
+
+		CloseHandle(g_hOutputReadyEvent);
+		CloseHandle(g_hOutputStopEvent);
 
 		InterlockedFlushSList(g_jobsList);
+		InterlockedFlushSList(g_outputsList);
 		_aligned_free(g_jobsList);
+		_aligned_free(g_outputsList);
 	}
 }
 
