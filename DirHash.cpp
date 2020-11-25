@@ -95,6 +95,7 @@ typedef vector<unsigned char> ByteArray;
 static BYTE g_pbBuffer[4096];
 static TCHAR g_szCanonalizedName[MAX_PATH + 1];
 static WORD  g_wAttributes = FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED;
+static volatile WORD  g_wCurrentAttributes;
 static HANDLE g_hConsole = NULL;
 static CONSOLE_SCREEN_BUFFER_INFO g_originalConsoleInfo;
 static BYTE pbDigest[128];
@@ -105,6 +106,26 @@ static bool g_bUseMsCrypto = false;
 static bool g_bMismatchFound = false;
 static bool g_bSkipError = false;
 static bool g_bNoLogo = false;
+static HANDLE g_hThreads[256];
+static WORD ThreadProcessorGroups[256] = { 0 };
+static DWORD g_threadsCount = 0;
+static volatile bool g_bStopThreads = false;
+static HANDLE g_hReadyEvent = NULL;
+static HANDLE g_hStopEvent = NULL;
+static CRITICAL_SECTION g_outputLock;
+
+
+typedef BOOL(WINAPI* SetThreadGroupAffinityFn)(
+	HANDLE               hThread,
+	const GROUP_AFFINITY* GroupAffinity,
+	PGROUP_AFFINITY      PreviousGroupAffinity
+	);
+
+typedef WORD(WINAPI* GetActiveProcessorGroupCountFn)();
+
+typedef DWORD(WINAPI* GetActiveProcessorCountFn)(
+	WORD GroupNumber
+	);
 
 // Used for sorting directory content
 bool compare_nocase(LPCWSTR first, LPCWSTR second)
@@ -180,13 +201,21 @@ bool FromHex(const TCHAR* szHex, ByteArray& buffer)
 	return bRet;
 }
 
+void Trace (LPCTSTR szMsg, ...)
+{
+	va_list args;
+	va_start(args, szMsg);
+	_vtprintf(szMsg, args);
+	va_end(args);
+}
+
 void ShowError(LPCTSTR szMsg, ...)
 {
 	va_list args;
 	va_start(args, szMsg);
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
 	_vtprintf(szMsg, args);
-	SetConsoleTextAttribute(g_hConsole, g_wAttributes);
+	SetConsoleTextAttribute(g_hConsole, g_wCurrentAttributes);
 	va_end(args);
 }
 
@@ -196,7 +225,7 @@ void ShowWarning(LPCTSTR szMsg, ...)
 	va_start(args, szMsg);
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
 	_vtprintf(szMsg, args);
-	SetConsoleTextAttribute(g_hConsole, g_wAttributes);
+	SetConsoleTextAttribute(g_hConsole, g_wCurrentAttributes);
 	va_end(args);
 }
 
@@ -851,6 +880,257 @@ void ClearProgress()
 	_tprintf(_T("\r"));
 }
 
+typedef struct
+{
+	FILE* f;
+	std::wstring szFilePath;
+	bool bQuiet;
+	bool bShowProgress;
+	bool bSumMode;
+	bool bSumVerificationMode;
+	ByteArray pbExpectedDigest;
+	Hash* pHash;
+} threadParam;
+
+typedef struct _JOB_ITEM {
+	SLIST_ENTRY ItemEntry;
+	threadParam* pParam;
+} JOB_ITEM, * PJOB_ITEM;
+
+PSLIST_HEADER g_jobsList = NULL;
+
+void AddHashJobEntry(threadParam* pParam, PSLIST_HEADER pList)
+{
+	JOB_ITEM* pJobItem = (JOB_ITEM*)_aligned_malloc(sizeof(JOB_ITEM), MEMORY_ALLOCATION_ALIGNMENT);
+	if (NULL == pJobItem)
+		return;
+
+	pJobItem->pParam = pParam;
+	InterlockedPushEntrySList(pList, &(pJobItem->ItemEntry));
+}
+
+void AddHashJob(FILE* f, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, Hash* pHash)
+{
+	threadParam* p = new threadParam;
+	p->f = f;
+	p->szFilePath = szFilePath;
+	p->bQuiet = bQuiet;
+	p->bShowProgress = bShowProgress;
+	p->bSumMode = bSumMode;
+	p->bSumVerificationMode = bSumVerificationMode;
+	if (bSumVerificationMode && pbExpectedDigest)
+	{
+		p->pbExpectedDigest.resize(pHash->GetHashSize());
+		memcpy(p->pbExpectedDigest.data(), pbExpectedDigest, pHash->GetHashSize());
+	}
+	p->pHash = pHash;
+
+	AddHashJobEntry(p, g_jobsList);
+
+	SetEvent(g_hReadyEvent);
+}
+
+void ProcessFile(FILE* f, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, Hash* pHash, LPBYTE pbBuffer, size_t cbBuffer)
+{
+	size_t len;
+	bShowProgress = !bQuiet && bShowProgress;
+	unsigned long long fileSize = bShowProgress ? (unsigned long long) _filelengthi64(_fileno(f)) : 0;
+	unsigned long long currentSize = 0;
+	clock_t startTime = bShowProgress ? clock() : 0;
+	clock_t lastBlockTime = 0;
+	LPCTSTR szFileName = bShowProgress ? GetShortFileName(szFilePath, fileSize) : NULL;
+
+	while ((len = fread(pbBuffer, 1, cbBuffer, f)) != 0)
+	{
+		currentSize += (unsigned long long) len;
+		pHash->Update(pbBuffer, len);
+		if (bShowProgress && !g_threadsCount)
+			DisplayProgress(szFileName, currentSize, fileSize, startTime, lastBlockTime);
+	}
+
+	if (bShowProgress && !g_threadsCount)
+		ClearProgress();
+
+	fclose(f);
+
+	if (bSumMode)
+	{
+		BYTE pbSumDigest[128];
+		pHash->Final(pbSumDigest);
+
+		if (bSumVerificationMode)
+		{
+			if (memcmp(pbSumDigest, pbExpectedDigest, pHash->GetHashSize()))
+			{
+				g_bMismatchFound = true;
+				if (g_threadsCount && (!bQuiet || outputFile)) EnterCriticalSection(&g_outputLock);
+				if (!bQuiet) Trace(_T("Hash value mismatch for \"%s\"\n"), szFilePath);
+				if (outputFile) _ftprintf(outputFile, _T("Hash value mismatch for \"%s\"\n"), szFilePath);
+				if (g_threadsCount && (!bQuiet || outputFile)) LeaveCriticalSection(&g_outputLock);
+			}
+		}
+		else
+		{
+			ToHex(pbSumDigest, pHash->GetHashSize(), szDigestHex);
+			if (g_threadsCount && (!bQuiet || outputFile)) EnterCriticalSection(&g_outputLock);
+			if (!bQuiet) Trace(_T("%s  %s\n"), szDigestHex, szFilePath);
+			if (outputFile) _ftprintf(outputFile, _T("%s  %s\n"), szDigestHex, szFilePath);
+			if (g_threadsCount && (!bQuiet || outputFile)) LeaveCriticalSection(&g_outputLock);
+		}
+	}
+}
+
+DWORD WINAPI ThreadCode(LPVOID pArg)
+{
+	BYTE pbBuffer[4096];
+	HANDLE syncObjs[2] = { g_hReadyEvent, g_hStopEvent };
+
+	SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
+
+	SetThreadGroupAffinityFn SetThreadGroupAffinityPtr = (SetThreadGroupAffinityFn)GetProcAddress(GetModuleHandle(L"kernel32.dll"), "SetThreadGroupAffinity");
+	if (SetThreadGroupAffinityPtr && pArg)
+	{
+		GROUP_AFFINITY groupAffinity = { 0 };
+		groupAffinity.Mask = ~0ULL;
+		groupAffinity.Group = *(WORD*)(pArg);
+		SetThreadGroupAffinityPtr(GetCurrentThread(), &groupAffinity, NULL);
+	}
+
+	while (true)
+	{
+		threadParam* p = NULL;
+
+		JOB_ITEM* pJob = (JOB_ITEM*) InterlockedPopEntrySList(g_jobsList);
+
+		if (pJob)
+		{
+			p = pJob->pParam;
+			ProcessFile(p->f, p->szFilePath.c_str(), p->bQuiet, p->bShowProgress, p->bSumMode, p->bSumVerificationMode, p->pbExpectedDigest.data(), p->pHash, pbBuffer, sizeof (pbBuffer));
+			delete p->pHash;
+			delete p;
+			_aligned_free(pJob);
+		}
+		else if (g_bStopThreads)
+			break;
+		else
+		{			
+			WaitForMultipleObjects(2, syncObjs, FALSE, INFINITE);
+		}
+	}
+	SecureZeroMemory(pbBuffer, sizeof(pbBuffer));
+	return 0;
+}
+
+size_t GetCpuCount(WORD* pGroupCount)
+{
+	size_t cpuCount = 0;
+	SYSTEM_INFO sysInfo;
+	GetActiveProcessorGroupCountFn GetActiveProcessorGroupCountPtr = (GetActiveProcessorGroupCountFn)GetProcAddress(GetModuleHandle(L"Kernel32.dll"), "GetActiveProcessorGroupCount");
+	GetActiveProcessorCountFn GetActiveProcessorCountPtr = (GetActiveProcessorCountFn)GetProcAddress(GetModuleHandle(L"Kernel32.dll"), "GetActiveProcessorCount");
+	if (GetActiveProcessorGroupCountPtr && GetActiveProcessorCountPtr)
+	{
+		WORD j, groupCount = GetActiveProcessorGroupCountPtr();
+		size_t totalProcessors = 0;
+		for (j = 0; j < groupCount; ++j)
+		{
+			totalProcessors += (size_t)GetActiveProcessorCountPtr(j);
+		}
+		cpuCount = totalProcessors;
+		if (pGroupCount)
+			*pGroupCount = groupCount;
+	}
+	else
+	{
+		GetSystemInfo(&sysInfo);
+		cpuCount = (size_t)sysInfo.dwNumberOfProcessors;
+		if (pGroupCount)
+			*pGroupCount = 1;
+	}
+
+	return cpuCount;
+}
+
+void StartThreads()
+{
+	size_t cpuCount = 0, i = 0;
+	WORD groupCount = 1;
+	uint32 ThreadCount = 0;
+
+	cpuCount = GetCpuCount(&groupCount);
+
+	if (cpuCount > ARRAYSIZE(g_hThreads))
+		cpuCount = ARRAYSIZE(g_hThreads);
+
+	if (cpuCount <= 1)
+		return;
+
+	g_jobsList = (PSLIST_HEADER)_aligned_malloc(sizeof(SLIST_HEADER), MEMORY_ALLOCATION_ALIGNMENT);
+	InitializeSListHead(g_jobsList);
+
+	g_hReadyEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+	g_hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+
+	InitializeCriticalSection(&g_outputLock);
+
+	for (ThreadCount = 0; ThreadCount < (uint32) cpuCount; ++ThreadCount)
+	{
+		WORD* pThreadArg = NULL;
+		if (groupCount > 1)
+		{
+
+			GetActiveProcessorCountFn GetActiveProcessorCountPtr = (GetActiveProcessorCountFn)GetProcAddress(GetModuleHandle(L"Kernel32.dll"), "GetActiveProcessorCount");
+			// Determine which processor group to bind the thread to.
+			if (GetActiveProcessorCountPtr)
+			{
+				WORD j;
+				uint32 totalProcessors = 0U;
+				for (j = 0U; j < groupCount; j++)
+				{
+					totalProcessors += (uint32)GetActiveProcessorCountPtr(j);
+					if (totalProcessors >= ThreadCount)
+					{
+						ThreadProcessorGroups[ThreadCount] = j;
+						break;
+					}
+				}
+			}
+			else
+				ThreadProcessorGroups[ThreadCount] = 0;
+
+			pThreadArg = &ThreadProcessorGroups[ThreadCount];
+		}
+
+		g_hThreads[ThreadCount] = (HANDLE)CreateThread(NULL, 0, ThreadCode, (void*)pThreadArg, 0, NULL);
+	}
+
+	g_threadsCount = ThreadCount;
+}
+
+void StopThreads()
+{
+	if (g_threadsCount)
+	{
+		g_bStopThreads = true;
+		SetEvent(g_hStopEvent);
+		
+		WaitForMultipleObjects(g_threadsCount, g_hThreads, TRUE, INFINITE);
+
+		for (DWORD i = 0; i < g_threadsCount; i++)
+		{
+			CloseHandle(g_hThreads[i]);
+		}
+		CloseHandle(g_hReadyEvent);
+		CloseHandle(g_hStopEvent);
+
+		DeleteCriticalSection(&g_outputLock);
+
+		InterlockedFlushSList(g_jobsList);
+		_aligned_free(g_jobsList);
+	}
+}
+
+
+
 DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
 {
 	DWORD dwError = 0;
@@ -858,6 +1138,7 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 	int pathLen = lstrlen(szFilePath);
 	map<wstring, HashResultEntry>::const_iterator It;
 	bool bSumVerificationMode = false;
+	LPCBYTE pbExpectedDigest = NULL;
 
 	if (pathLen <= MAX_PATH && !excludeSpecList.empty() && IsExcludedName(szFilePath, excludeSpecList))
 		return 0;
@@ -885,6 +1166,7 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 			else
 			{
 				It->second.m_processed = true;
+				pbExpectedDigest = It->second.m_digest.data();
 				bSumVerificationMode = true;
 			}
 		}
@@ -914,54 +1196,13 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 	f = _tfopen(szFilePath, _T("rb"));
 	if (f)
 	{
-		size_t len;
-		bShowProgress = !bQuiet && bShowProgress;
-		unsigned long long fileSize = bShowProgress ? (unsigned long long) _filelengthi64(_fileno(f)) : 0;
-		unsigned long long currentSize = 0;
-		clock_t startTime = bShowProgress ? clock() : 0;
-		clock_t lastBlockTime = 0;
-		LPCTSTR szFileName = bShowProgress ? GetShortFileName(szFilePath, fileSize) : NULL;
-
-		while ((len = fread(g_pbBuffer, 1, sizeof(g_pbBuffer), f)) != 0)
+		if (bSumMode && g_threadsCount)
 		{
-			currentSize += (unsigned long long) len;
-			pHash->Update(g_pbBuffer, len);
-			if (bShowProgress)
-				DisplayProgress(szFileName, currentSize, fileSize, startTime, lastBlockTime);
+			AddHashJob(f, szFilePath, bQuiet, bShowProgress, bSumMode, bSumVerificationMode, pbExpectedDigest, pHash);
+			pHash = NULL; // now hash pointer belongs to the job
 		}
-
-		if (bShowProgress)
-			ClearProgress();
-
-		fclose(f);
-
-		if (bSumMode)
-		{
-			pHash->Final(pbDigest);
-
-			if (bSumVerificationMode)
-			{
-				if (memcmp(pbDigest, It->second.m_digest.data(), pHash->GetHashSize()))
-				{
-					g_bMismatchFound = true;
-					if (!bQuiet) ShowWarning(_T("Hash value mismatch for \"%s\"\n"), szFilePath);
-					if (outputFile) _ftprintf(outputFile, _T("Hash value mismatch for \"%s\"\n"), szFilePath);
-				}
-			}
-			else
-			{
-				// display hash in yellow
-				SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
-
-				ToHex(pbDigest, pHash->GetHashSize(), szDigestHex);
-
-				if (!bQuiet) _tprintf(_T("%s  %s\n"), szDigestHex, szFilePath);
-				if (outputFile) _ftprintf(outputFile, _T("%s  %s\n"), szDigestHex, szFilePath);
-
-				// restore normal text color
-				SetConsoleTextAttribute(g_hConsole, g_wAttributes);
-			}
-		}
+		else
+			ProcessFile(f, szFilePath, bQuiet, bShowProgress, bSumMode, bSumVerificationMode, pbExpectedDigest , pHash, g_pbBuffer, sizeof (g_pbBuffer));
 	}
 	else
 	{
@@ -978,7 +1219,7 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 		}
 	}
 
-	if (bSumMode)
+	if (bSumMode && pHash)
 		delete pHash;
 	return dwError;
 }
@@ -1111,7 +1352,7 @@ void ShowLogo()
 	for (size_t i = 0; i < algos.size(); i++)
 		_tprintf(_T(" %s"), algos[i].c_str());
 	_tprintf(_T("\n\n"));
-	SetConsoleTextAttribute(g_hConsole, g_wAttributes);
+	SetConsoleTextAttribute(g_hConsole, g_wCurrentAttributes);
 }
 
 
@@ -1240,7 +1481,7 @@ void BenchmarkAlgo(LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard, std::ws
 		}
 
 		// restore normal text color
-		SetConsoleTextAttribute(g_hConsole, g_wAttributes);
+		SetConsoleTextAttribute(g_hConsole, g_wCurrentAttributes);
 
 		delete pHash;
 		delete[] pbData;
@@ -1658,12 +1899,15 @@ int _tmain(int argc, _TCHAR* argv[])
 	ByteArray verifyDigest;
 	bool bBenchmarkAllAlgos = false;
 	CConsoleUnicodeOutputInitializer conUnicode;
+	bool bUseThreads = false;
 
 	g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 
 	// get original console attributes
 	if (GetConsoleScreenBufferInfo(g_hConsole, &g_originalConsoleInfo))
 		g_wAttributes = g_originalConsoleInfo.wAttributes;
+
+	g_wCurrentAttributes = g_wAttributes;
 
 	setbuf(stdout, NULL);
 
@@ -1861,6 +2105,10 @@ int _tmain(int argc, _TCHAR* argv[])
 			{
 				bBenchmarkAllAlgos = true;
 			}
+			else if (_tcsicmp(argv[i], _T("-threads")) == 0)
+			{
+				bUseThreads = true;
+			}
 			else
 			{
 				if (outputFile) fclose(outputFile);
@@ -1998,6 +2246,16 @@ int _tmain(int argc, _TCHAR* argv[])
 		}
 	}
 
+	if (bSumMode)
+	{
+		// set default text color to yellow
+		g_wCurrentAttributes = FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY;
+		SetConsoleTextAttribute(g_hConsole, g_wCurrentAttributes);		
+
+		if (bUseThreads)
+			StartThreads();
+	}
+
 	if (PathIsDirectory(argv[1]))
 	{
 		// remove any trailing backslash to harmonize directory names in case they are included
@@ -2018,6 +2276,14 @@ int _tmain(int argc, _TCHAR* argv[])
 	}
 	else
 		dwError = HashFile(argv[1], pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
+
+	if (bSumMode)
+	{
+		if (bUseThreads)
+			StopThreads();
+		g_wCurrentAttributes = g_wAttributes;
+		SetConsoleTextAttribute(g_hConsole, g_wAttributes);
+	}
 
 	if (dwError == NO_ERROR)
 	{
