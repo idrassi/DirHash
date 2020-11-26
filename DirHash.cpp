@@ -1299,7 +1299,7 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 	else
 	{
 		if (!bQuiet) ShowError(_T("Failed to open file \"%s\" for reading\n"), szFilePath);
-		if (outputFile) _ftprintf(outputFile, _T("Failed to open file \"%s\" for reading\n"), szFilePath);
+		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, _T("Failed to open file \"%s\" for reading\n"), szFilePath);
 		if (g_bSkipError)
 		{
 			if (bSumMode) g_bMismatchFound = true;
@@ -1324,6 +1324,7 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 	DWORD dwError = 0;
 	list<CDirContent> dirContent;
 	int pathLen = lstrlen(szDirPath);
+	bool bSumVerificationMode = (bSumMode && !digestList.empty());
 
 	if (pathLen <= MAX_PATH && !excludeSpecList.empty() && IsExcludedName(szDirPath, excludeSpecList))
 		return 0;
@@ -1340,7 +1341,7 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 	{
 		dwError = GetLastError();
 		if (!bQuiet) ShowError(_T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);
-		if (outputFile) _ftprintf(outputFile, _T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);
+		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, _T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);
 		if (g_bSkipError)
 		{
 			return 0;
@@ -1373,7 +1374,7 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 	{
 		FindClose(hFind);
 		if (!bQuiet) ShowError(TEXT("FindNextFile failed while listing \"%s\". \n Error 0x%.8X.\n"), szDirPath, dwError);
-		if (outputFile) _ftprintf(outputFile, TEXT("FindNextFile failed while listing \"%s\". \n Error 0x%.8X.\n"), szDirPath, dwError);
+		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, TEXT("FindNextFile failed while listing \"%s\". \n Error 0x%.8X.\n"), szDirPath, dwError);
 		if (g_bSkipError)
 		{
 			return 0;
