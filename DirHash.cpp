@@ -110,12 +110,14 @@ static HANDLE g_hThreads[256];
 static WORD ThreadProcessorGroups[256] = { 0 };
 static DWORD g_threadsCount = 0;
 static volatile bool g_bStopThreads = false;
+static volatile bool g_bFatalError = false;
 static volatile bool g_bStopOutputThread = false;
 static HANDLE g_hReadyEvent = NULL;
 static HANDLE g_hStopEvent = NULL;
 static HANDLE g_hOutputReadyEvent = NULL;
 static HANDLE g_hOutputStopEvent = NULL;
 static HANDLE g_hOutputThread = NULL;
+static std::wstring g_szLastErrorMsg;
 
 
 typedef BOOL(WINAPI* SetThreadGroupAffinityFn)(
@@ -204,12 +206,21 @@ bool FromHex(const TCHAR* szHex, ByteArray& buffer)
 	return bRet;
 }
 
-void Trace (LPCTSTR szMsg, ...)
+std::wstring FormatString(LPCTSTR fmt, ...)
 {
 	va_list args;
-	va_start(args, szMsg);
-	_vtprintf(szMsg, args);
+	va_start(args, fmt);
+	int s = _vscwprintf(fmt, args);
 	va_end(args);
+
+	wchar_t* pStr = new wchar_t[s + 1];
+	va_start(args, fmt);
+	_vsnwprintf(pStr, (size_t) (s + 1), fmt, args);
+	va_end(args);
+
+	std::wstring ret = pStr;
+	delete[] pStr;
+	return ret;
 }
 
 void ShowError(LPCTSTR szMsg, ...)
@@ -904,10 +915,45 @@ typedef struct _OUTPUT_ITEM {
 	SLIST_ENTRY ItemEntry;
 	std::wstring* pParam;
 	bool bQuiet;
+	bool bError;
+	bool bSkipOutputFile;
 } OUTPUT_ITEM, * POUTPUT_ITEM;
 
 PSLIST_HEADER g_jobsList = NULL;
 PSLIST_HEADER g_outputsList = NULL;
+
+void FreejobList()
+{
+	JOB_ITEM* pJob;
+	
+	while (pJob = (JOB_ITEM*)InterlockedPopEntrySList(g_jobsList))
+	{
+		threadParam* p = pJob->pParam;
+		delete p->pHash;
+		delete p;
+		_aligned_free(pJob);
+	}
+
+	InterlockedFlushSList(g_jobsList);
+	_aligned_free(g_jobsList);
+
+}
+
+void FreeOutputList()
+{
+	OUTPUT_ITEM* pOutput;
+
+	while ((pOutput = (OUTPUT_ITEM*)InterlockedPopEntrySList(g_outputsList)))
+	{
+		std::wstring* p = pOutput->pParam;
+		delete p;
+		_aligned_free(pOutput);
+	}
+
+	InterlockedFlushSList(g_outputsList);
+	_aligned_free(g_outputsList);
+
+}
 
 void AddHashJobEntry(threadParam* pParam)
 {
@@ -919,7 +965,7 @@ void AddHashJobEntry(threadParam* pParam)
 	InterlockedPushEntrySList(g_jobsList, &(pJobItem->ItemEntry));
 }
 
-void AddOutputEntry(std::wstring* pParam, bool bQuiet)
+void AddOutputEntry(std::wstring* pParam, bool bQuiet, bool bError, bool bSkipOutputFile)
 {
 	OUTPUT_ITEM* pOutputItem = (OUTPUT_ITEM*)_aligned_malloc(sizeof(OUTPUT_ITEM), MEMORY_ALLOCATION_ALIGNMENT);
 	if (NULL == pOutputItem)
@@ -927,6 +973,8 @@ void AddOutputEntry(std::wstring* pParam, bool bQuiet)
 
 	pOutputItem->pParam = pParam;
 	pOutputItem->bQuiet = bQuiet;
+	pOutputItem->bError = bError;
+	pOutputItem->bSkipOutputFile = bSkipOutputFile;
 	InterlockedPushEntrySList(g_outputsList, &(pOutputItem->ItemEntry));
 
 	SetEvent(g_hOutputReadyEvent);
@@ -987,20 +1035,18 @@ void ProcessFile(FILE* f, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, b
 			{
 				g_bMismatchFound = true;
 
-				std::wstring szMsg = L"Hash value mismatch for \"";
-				szMsg += szFilePath;
-				szMsg += L"\"\n";
+				std::wstring szMsg = FormatString(L"Hash value mismatch for \"%s\"\n", szFilePath);
 
 				if (g_threadsCount)
 				{
 					if (!bQuiet || outputFile)
 					{
-						AddOutputEntry(new std::wstring(szMsg), bQuiet);
+						AddOutputEntry(new std::wstring(szMsg), bQuiet, false, false);
 					}
 				}
 				else
 				{
-					if (!bQuiet) Trace(szMsg.c_str());
+					if (!bQuiet) ShowWarning(szMsg.c_str());
 					if (outputFile) _ftprintf(outputFile, szMsg.c_str());
 				}				
 			}
@@ -1018,12 +1064,12 @@ void ProcessFile(FILE* f, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, b
 			{
 				if (!bQuiet || outputFile)
 				{
-					AddOutputEntry(new std::wstring(szMsg), bQuiet);
+					AddOutputEntry(new std::wstring(szMsg), bQuiet, false, false);
 				}
 			}
 			else
 			{
-				if (!bQuiet) Trace(szMsg.c_str());
+				if (!bQuiet) ShowWarning(szMsg.c_str());
 				if (outputFile) _ftprintf(outputFile, szMsg.c_str());
 			}
 		}
@@ -1036,21 +1082,27 @@ DWORD WINAPI OutputThreadCode(LPVOID pArg)
 
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
 
-	while (true)
+	while (!g_bFatalError)
 	{
 		std::wstring* p = NULL;
 		OUTPUT_ITEM* pOutput;
 		
-		while ((pOutput = (OUTPUT_ITEM*)InterlockedPopEntrySList(g_outputsList)))
+		while (!g_bFatalError && (pOutput = (OUTPUT_ITEM*)InterlockedPopEntrySList(g_outputsList)))
 		{
 			p = pOutput->pParam;
-			if (!pOutput->bQuiet) Trace(p->c_str());
-			if (outputFile) _ftprintf(outputFile, p->c_str());
+			if (!pOutput->bQuiet)
+			{
+				if (pOutput->bError)
+					ShowError(p->c_str());
+				else
+					ShowWarning(p->c_str());
+			}
+			if (!pOutput->bSkipOutputFile) if (outputFile) _ftprintf(outputFile, p->c_str());
 			delete p;
 			_aligned_free(pOutput);
 		}
 
-		if (g_bStopOutputThread)
+		if (g_bStopOutputThread || g_bFatalError)
 			break;
 		else
 		{
@@ -1075,7 +1127,7 @@ DWORD WINAPI ThreadCode(LPVOID pArg)
 		SetThreadGroupAffinityPtr(GetCurrentThread(), &groupAffinity, NULL);
 	}
 
-	while (true)
+	while (!g_bFatalError)
 	{
 		threadParam* p = NULL;
 
@@ -1089,7 +1141,7 @@ DWORD WINAPI ThreadCode(LPVOID pArg)
 			delete p;
 			_aligned_free(pJob);
 		}
-		else if (g_bStopThreads)
+		else if (g_bStopThreads || g_bFatalError)
 			break;
 		else
 		{			
@@ -1189,10 +1241,11 @@ void StartThreads()
 	g_hOutputThread = CreateThread(NULL, 0, OutputThreadCode, NULL, 0, NULL);
 }
 
-void StopThreads()
+void StopThreads(bool bError)
 {
 	if (g_threadsCount)
 	{
+		g_bFatalError = bError;
 		g_bStopThreads = true;
 		SetEvent(g_hStopEvent);
 		
@@ -1214,10 +1267,8 @@ void StopThreads()
 		CloseHandle(g_hOutputReadyEvent);
 		CloseHandle(g_hOutputStopEvent);
 
-		InterlockedFlushSList(g_jobsList);
-		InterlockedFlushSList(g_outputsList);
-		_aligned_free(g_jobsList);
-		_aligned_free(g_outputsList);
+		FreejobList();
+		FreeOutputList();
 	}
 }
 
@@ -1243,15 +1294,24 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 			It = digestList.find(szFilePath);
 			if (It == digestList.end())
 			{
-				if (!bQuiet) ShowError(_T("Error: file \"%s\" not found in checksum file.\n"), szFilePath);
-				if (outputFile) _ftprintf(outputFile, _T("Error: file \"%s\" not found in checksum file.\n"), szFilePath);
+				std::wstring szMsg = FormatString(_T("Error: file \"%s\" not found in checksum file.\n"), szFilePath);
+				
+				if (outputFile) _ftprintf(outputFile, szMsg.c_str());
 				if (g_bSkipError)
 				{					
+					if (!bQuiet)
+					{
+						if (g_threadsCount)
+							AddOutputEntry(new std::wstring(szMsg), bQuiet, true, true);
+						else
+							ShowError(szMsg.c_str());
+					}
 					g_bMismatchFound = true;
 					return 0;					
 				}
 				else
-				{					
+				{		
+					g_szLastErrorMsg = szMsg;
 					return -5;
 				}
 			}
@@ -1298,15 +1358,27 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 	}
 	else
 	{
-		if (!bQuiet) ShowError(_T("Failed to open file \"%s\" for reading\n"), szFilePath);
-		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, _T("Failed to open file \"%s\" for reading\n"), szFilePath);
+		std::wstring szMsg = FormatString (_T("Failed to open file \"%s\" for reading\n"), szFilePath);
+		
+		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, szMsg.c_str());
 		if (g_bSkipError)
 		{
+			if (!bQuiet)
+			{
+				if (g_threadsCount)
+				{
+					AddOutputEntry(new std::wstring(szMsg), bQuiet, true, true);
+				}
+				else
+					ShowError(szMsg.c_str());
+			}
+			
 			if (bSumMode) g_bMismatchFound = true;
 			dwError = 0;
 		}
 		else
 		{		
+			g_szLastErrorMsg = szMsg;
 			dwError = -1;
 		}
 	}
@@ -1339,15 +1411,23 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 
 	if (INVALID_HANDLE_VALUE == hFind)
 	{
-		dwError = GetLastError();
-		if (!bQuiet) ShowError(_T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);
-		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, _T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);
+		std::wstring szMsg = FormatString (_T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);
+		dwError = GetLastError();		
+		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, szMsg.c_str());
 		if (g_bSkipError)
 		{
+			if (!bQuiet)
+			{
+				if (g_threadsCount)
+					AddOutputEntry(new std::wstring(szMsg), bQuiet, true, true);
+				else
+					ShowError(szMsg.c_str());
+			}
 			return 0;
 		}
 		else
-		{						
+		{
+			g_szLastErrorMsg = szMsg;
 			return dwError;
 		}
 	}
@@ -1372,15 +1452,24 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 	dwError = GetLastError();
 	if (dwError != ERROR_NO_MORE_FILES)
 	{
+		std::wstring szMsg = FormatString (TEXT("FindNextFile failed while listing \"%s\". \n Error 0x%.8X.\n"), szDirPath, dwError);
 		FindClose(hFind);
-		if (!bQuiet) ShowError(TEXT("FindNextFile failed while listing \"%s\". \n Error 0x%.8X.\n"), szDirPath, dwError);
-		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, TEXT("FindNextFile failed while listing \"%s\". \n Error 0x%.8X.\n"), szDirPath, dwError);
+		
+		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, szMsg.c_str());
 		if (g_bSkipError)
 		{
+			if (!bQuiet)
+			{
+				if (g_threadsCount)
+					AddOutputEntry(new std::wstring(szMsg), bQuiet, true, true);
+				else
+					ShowError(szMsg.c_str());
+			}
 			return 0;
 		}
 		else
 		{			
+			g_szLastErrorMsg = szMsg;
 			return dwError;
 		}
 	}
@@ -2373,7 +2462,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	if (bSumMode)
 	{
 		if (bUseThreads)
-			StopThreads();
+			StopThreads(dwError != NO_ERROR);
 		g_wCurrentAttributes = g_wAttributes;
 		SetConsoleTextAttribute(g_hConsole, g_wAttributes);
 	}
@@ -2537,6 +2626,11 @@ int _tmain(int argc, _TCHAR* argv[])
 			if (outputFile) _ftprintf(outputFile, _T("\n"));
 		}
 
+	}
+	else
+	{
+		if (wcslen(g_szLastErrorMsg.c_str()))
+			ShowError(g_szLastErrorMsg.c_str());
 	}
 
 	delete pHash;
