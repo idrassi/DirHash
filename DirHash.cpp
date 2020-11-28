@@ -1559,7 +1559,7 @@ void ShowUsage()
 {
 	ShowLogo();
 	_tprintf(TEXT("Usage: \n")
-		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-skipError] [-nologo] [-exclude pattern1] [-exclude pattern2]\n")
+		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-skipError] [-nologo] [-exclude pattern1] [-exclude pattern2]\n")
 		TEXT("  DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait] [-nologo]\n")
 		TEXT("\n")
 		TEXT("  Possible values for HashAlgo (not case sensitive, default is Blake3):\n"));
@@ -1574,6 +1574,7 @@ void ShowUsage()
 		TEXT("  -sum: output hash of every file processed in a format similar to shasum.\n")
 		TEXT("  -verify: verify hash against value(s) present on the specified file.\n")
 		TEXT("           argument must be either a checksum file or a result file.\n")
+		TEXT("  -threads (only when -sum or -verify specified): multithreading will be used to accelerate hashing of files.\n")
 		TEXT("  -clip: copy the result to Windows clipboard (ignored when -sum specified)\n")
 		TEXT("  -lowercase: output hash value(s) in lower case instead of upper case\n")
 		TEXT("  -progress: Display information about the progress of hash operation\n")
