@@ -896,7 +896,8 @@ void ClearProgress()
 
 typedef struct
 {
-	FILE* f;
+	HANDLE f;
+	ULONGLONG fileSize;
 	std::wstring szFilePath;
 	bool bQuiet;
 	bool bShowProgress;
@@ -929,6 +930,7 @@ void FreejobList()
 	while (pJob = (JOB_ITEM*)InterlockedPopEntrySList(g_jobsList))
 	{
 		threadParam* p = pJob->pParam;
+		CloseHandle(p->f);
 		delete p->pHash;
 		delete p;
 		_aligned_free(pJob);
@@ -980,10 +982,11 @@ void AddOutputEntry(std::wstring* pParam, bool bQuiet, bool bError, bool bSkipOu
 	SetEvent(g_hOutputReadyEvent);
 }
 
-void AddHashJob(FILE* f, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, Hash* pHash)
+void AddHashJob(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, Hash* pHash)
 {
 	threadParam* p = new threadParam;
 	p->f = f;
+	p->fileSize = fileSize;
 	p->szFilePath = szFilePath;
 	p->bQuiet = bQuiet;
 	p->bShowProgress = bShowProgress;
@@ -1001,28 +1004,29 @@ void AddHashJob(FILE* f, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bo
 	SetEvent(g_hReadyEvent);
 }
 
-void ProcessFile(FILE* f, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, Hash* pHash, LPBYTE pbBuffer, size_t cbBuffer)
+void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, Hash* pHash, LPBYTE pbBuffer, size_t cbBuffer)
 {
-	size_t len;
 	bShowProgress = !bQuiet && bShowProgress;
-	unsigned long long fileSize = bShowProgress ? (unsigned long long) _filelengthi64(_fileno(f)) : 0;
 	unsigned long long currentSize = 0;
 	clock_t startTime = bShowProgress ? clock() : 0;
 	clock_t lastBlockTime = 0;
 	LPCTSTR szFileName = bShowProgress ? GetShortFileName(szFilePath, fileSize) : NULL;
+	DWORD cbCount = 0;
 
-	while ((len = fread(pbBuffer, 1, cbBuffer, f)) != 0)
+	while (ReadFile(f, pbBuffer, (DWORD) cbBuffer, &cbCount, NULL) && cbCount)
 	{
-		currentSize += (unsigned long long) len;
-		pHash->Update(pbBuffer, len);
+		currentSize += (unsigned long long) cbCount;
+		pHash->Update(pbBuffer, cbCount);
 		if (bShowProgress && !g_threadsCount)
 			DisplayProgress(szFileName, currentSize, fileSize, startTime, lastBlockTime);
+		if (currentSize == fileSize)
+			break;
 	}
 
 	if (bShowProgress && !g_threadsCount)
 		ClearProgress();
 
-	fclose(f);
+	CloseHandle(f);
 
 	if (bSumMode)
 	{
@@ -1136,7 +1140,7 @@ DWORD WINAPI ThreadCode(LPVOID pArg)
 		if (pJob)
 		{
 			p = pJob->pParam;
-			ProcessFile(p->f, p->szFilePath.c_str(), p->bQuiet, p->bShowProgress, p->bSumMode, p->bSumVerificationMode, p->pbExpectedDigest.data(), p->pHash, pbBuffer, sizeof (pbBuffer));
+			ProcessFile(p->f, p->fileSize, p->szFilePath.c_str(), p->bQuiet, p->bShowProgress, p->bSumMode, p->bSumVerificationMode, p->pbExpectedDigest.data(), p->pHash, pbBuffer, sizeof (pbBuffer));
 			delete p->pHash;
 			delete p;
 			_aligned_free(pJob);
@@ -1181,7 +1185,7 @@ size_t GetCpuCount(WORD* pGroupCount)
 	return cpuCount;
 }
 
-void StartThreads()
+void StartThreads(bool bOutputThread)
 {
 	size_t cpuCount = 0, i = 0;
 	WORD groupCount = 1;
@@ -1238,7 +1242,8 @@ void StartThreads()
 
 	g_threadsCount = ThreadCount;
 
-	g_hOutputThread = CreateThread(NULL, 0, OutputThreadCode, NULL, 0, NULL);
+	if (bOutputThread)
+		g_hOutputThread = CreateThread(NULL, 0, OutputThreadCode, NULL, 0, NULL);
 }
 
 void StopThreads(bool bError)
@@ -1277,7 +1282,8 @@ void StopThreads(bool bError)
 DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
 {
 	DWORD dwError = 0;
-	FILE* f = NULL;
+	HANDLE f;
+	LARGE_INTEGER fileSize;
 	int pathLen = lstrlen(szFilePath);
 	map<wstring, HashResultEntry>::const_iterator It;
 	bool bSumVerificationMode = false;
@@ -1345,20 +1351,31 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 		pHash->Update((LPCBYTE)pNameToHash, _tcslen(pNameToHash) * sizeof(TCHAR));
 	}
 
-	f = _tfopen(szFilePath, _T("rb"));
-	if (f)
+	f = CreateFileW(szFilePath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+	if (f != INVALID_HANDLE_VALUE)
+	{
+		if (!GetFileSizeEx(f, &fileSize))
+		{
+			DWORD dwErr = GetLastError();
+			CloseHandle(f);
+			f = INVALID_HANDLE_VALUE;
+			SetLastError(dwErr);
+		}
+	}
+
+	if (f != INVALID_HANDLE_VALUE)
 	{
 		if (bSumMode && g_threadsCount)
 		{
-			AddHashJob(f, szFilePath, bQuiet, bShowProgress, bSumMode, bSumVerificationMode, pbExpectedDigest, pHash);
+			AddHashJob(f, fileSize.QuadPart, szFilePath, bQuiet, bShowProgress, bSumMode, bSumVerificationMode, pbExpectedDigest, pHash);
 			pHash = NULL; // now hash pointer belongs to the job
 		}
 		else
-			ProcessFile(f, szFilePath, bQuiet, bShowProgress, bSumMode, bSumVerificationMode, pbExpectedDigest , pHash, g_pbBuffer, sizeof (g_pbBuffer));
+			ProcessFile(f, fileSize.QuadPart, szFilePath, bQuiet, bShowProgress, bSumMode, bSumVerificationMode, pbExpectedDigest , pHash, g_pbBuffer, sizeof (g_pbBuffer));
 	}
 	else
 	{
-		std::wstring szMsg = FormatString (_T("Failed to open file \"%s\" for reading\n"), szFilePath);
+		std::wstring szMsg = FormatString (_T("Failed to open file \"%s\" for reading (error 0x%.8X)\n"), szFilePath, GetLastError());
 		
 		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, szMsg.c_str());
 		if (g_bSkipError)
@@ -2056,6 +2073,37 @@ bool ParseSumFile(const wchar_t* sumFile, map<wstring, HashResultEntry>& digestL
 	return bRet;
 }
 
+
+BOOL WINAPI CtrlHandler(DWORD fdwCtrlType)
+{
+	switch (fdwCtrlType)
+	{
+		// Handle the CTRL-C signal.
+	case CTRL_C_EVENT:
+	case CTRL_CLOSE_EVENT:
+	case CTRL_BREAK_EVENT:
+		// notify thread to stop but don't wait for them
+		if (g_threadsCount)
+		{
+			g_bFatalError = true;
+			g_bStopThreads = true;
+			g_bStopOutputThread = true;
+			SetEvent(g_hStopEvent);
+			SetEvent(g_hOutputStopEvent);
+
+			FreejobList(); // we close all already opened handles to avoid leaving too many opened handle
+			FreeOutputList();
+		}
+		// restore orginal console attributes
+		g_wCurrentAttributes = g_wAttributes;
+		SetConsoleTextAttribute(g_hConsole, g_wAttributes);
+		return FALSE;
+
+	default:
+		return FALSE;
+	}
+}
+
 int _tmain(int argc, _TCHAR* argv[])
 {
 	size_t length_of_arg;
@@ -2094,6 +2142,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	setbuf(stdout, NULL);
 
 	SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2020"));
+
+	SetConsoleCtrlHandler(CtrlHandler, TRUE);
 
 	if (argc < 2)
 	{
@@ -2435,7 +2485,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		SetConsoleTextAttribute(g_hConsole, g_wCurrentAttributes);		
 
 		if (bUseThreads)
-			StartThreads();
+			StartThreads(!bQuiet || outputFile);
 	}
 
 	if (PathIsDirectory(argv[1]))
