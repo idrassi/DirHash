@@ -98,8 +98,6 @@ static WORD  g_wAttributes = FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED
 static volatile WORD  g_wCurrentAttributes;
 static HANDLE g_hConsole = NULL;
 static CONSOLE_SCREEN_BUFFER_INFO g_originalConsoleInfo;
-static BYTE pbDigest[128];
-static TCHAR szDigestHex[257];
 static FILE* outputFile = NULL;
 static bool g_bLowerCase = false;
 static bool g_bUseMsCrypto = false;
@@ -1057,6 +1055,8 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 		}
 		else
 		{
+
+			WCHAR szDigestHex[129]; // enough for 64 bytes digest
 			ToHex(pbSumDigest, pHash->GetHashSize(), szDigestHex);
 
 			std::wstring szMsg = szDigestHex;
@@ -1665,8 +1665,6 @@ void BenchmarkAlgo(LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard, std::ws
 
 		// display hash in yellow
 		SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
-
-		ToHex(pbDigest, pHash->GetHashSize(), szDigestHex);
 
 		if (!bQuiet) _tprintf(_T("%s\n"), (TCHAR*)pbData);
 		if (outputFile) _ftprintf(outputFile, _T("%s\n"), (TCHAR*)pbData);
@@ -2608,6 +2606,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		}
 		else
 		{
+			BYTE pbDigest[64];
 			pHash->Final(pbDigest);
 
 			if (bVerifyMode)
@@ -2646,6 +2645,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			}
 			else
 			{
+				TCHAR szDigestHex[129]; 
 				if (!bQuiet)
 				{
 					if (outputFile)
@@ -2671,10 +2671,14 @@ int _tmain(int argc, _TCHAR* argv[])
 
 				// restore normal text color
 				SetConsoleTextAttribute(g_hConsole, g_wAttributes);
+
+				SecureZeroMemory(szDigestHex, sizeof(szDigestHex));
 			}
 
 			_tprintf(_T("\n"));
 			if (outputFile) _ftprintf(outputFile, _T("\n"));
+
+			SecureZeroMemory(pbDigest, sizeof(pbDigest));
 		}
 
 	}
@@ -2688,8 +2692,6 @@ int _tmain(int argc, _TCHAR* argv[])
 	if (outputFile) fclose(outputFile);
 
 	SecureZeroMemory(g_pbBuffer, sizeof(g_pbBuffer));
-	SecureZeroMemory(pbDigest, sizeof(pbDigest));
-	SecureZeroMemory(szDigestHex, sizeof(szDigestHex));
 
 
 	WaitForExit(bDontWait);
