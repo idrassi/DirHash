@@ -129,6 +129,9 @@
       <DelayLoadDLLs>
       </DelayLoadDLLs>
     </Link>
+    <Manifest>
+      <AdditionalManifestFiles>DirHash.manifest</AdditionalManifestFiles>
+    </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <ClCompile>
@@ -152,6 +155,9 @@
       <DelayLoadDLLs>
       </DelayLoadDLLs>
     </Link>
+    <Manifest>
+      <AdditionalManifestFiles>DirHash.manifest</AdditionalManifestFiles>
+    </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -174,6 +180,9 @@
       <DelayLoadDLLs>
       </DelayLoadDLLs>
     </Link>
+    <Manifest>
+      <AdditionalManifestFiles>DirHash.manifest</AdditionalManifestFiles>
+    </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -200,6 +209,9 @@
       <DelayLoadDLLs>
       </DelayLoadDLLs>
     </Link>
+    <Manifest>
+      <AdditionalManifestFiles>DirHash.manifest</AdditionalManifestFiles>
+    </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
     <ClCompile>
@@ -225,6 +237,9 @@
       <DelayLoadDLLs>
       </DelayLoadDLLs>
     </Link>
+    <Manifest>
+      <AdditionalManifestFiles>DirHash.manifest</AdditionalManifestFiles>
+    </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -250,6 +265,9 @@
       <DelayLoadDLLs>
       </DelayLoadDLLs>
     </Link>
+    <Manifest>
+      <AdditionalManifestFiles>DirHash.manifest</AdditionalManifestFiles>
+    </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="BLAKE2\neon\blake2b-neon.c">

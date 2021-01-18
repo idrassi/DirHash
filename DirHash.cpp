@@ -58,6 +58,7 @@
 #include <WinCrypt.h>
 #include <bcrypt.h>
 #include <Shlwapi.h>
+#include <pathcch.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <tchar.h>
@@ -129,6 +130,14 @@ typedef WORD(WINAPI* GetActiveProcessorGroupCountFn)();
 typedef DWORD(WINAPI* GetActiveProcessorCountFn)(
 	WORD GroupNumber
 	);
+
+typedef HRESULT(WINAPI* PathAllocCanonicalizeFn)(
+	PCWSTR pszPathIn,
+	ULONG  dwFlags,
+	PWSTR* ppszPathOut
+);
+
+PathAllocCanonicalizeFn PathAllocCanonicalizePtr = NULL;
 
 // Used for sorting directory content
 bool compare_nocase(LPCWSTR first, LPCWSTR second)
@@ -262,6 +271,30 @@ BOOL GetWindowsVersion(OSVERSIONINFOW* pOSversion)
 
 	return bRet;
 }
+
+LPCWSTR GetFileName(LPCWSTR szPath)
+{
+	size_t i, len = wcslen(szPath);
+	LPCWSTR ptr;
+	if (len <= 1)
+		return szPath;
+	ptr = szPath + (len - 1);
+	if (*ptr == L'\\' || *ptr == L'/')
+		ptr--;
+
+	while (ptr != szPath)
+	{
+		if (*ptr == L'\\' || *ptr == L'/')
+			break;
+		ptr--;
+	}
+
+	if (*ptr == L'\\' || *ptr == L'/')
+		return ptr + 1;
+	else
+		return ptr;
+}
+
 
 // ---------------------------------------------
 /*
@@ -1289,7 +1322,7 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 	bool bSumVerificationMode = false;
 	LPCBYTE pbExpectedDigest = NULL;
 
-	if (pathLen <= MAX_PATH && !excludeSpecList.empty() && IsExcludedName(szFilePath, excludeSpecList))
+	if (!excludeSpecList.empty() && IsExcludedName(szFilePath, excludeSpecList))
 		return 0;
 
 	if (bSumMode)
@@ -1334,8 +1367,23 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 	if (bIncludeNames)
 	{
 		LPCTSTR pNameToHash = NULL;
+		LPWSTR pCanonicalName = NULL;
 		if (pathLen > MAX_PATH)
-			pNameToHash = szFilePath;
+		{
+			if (PathAllocCanonicalizePtr)
+			{
+				if (S_OK == PathAllocCanonicalizePtr(szFilePath, PATHCCH_ALLOW_LONG_PATHS, &pCanonicalName))
+					pNameToHash = pCanonicalName;
+				else
+					pNameToHash = szFilePath;
+			}
+			else
+			{
+				pNameToHash = szFilePath;
+			}
+			if (bStripNames)
+				pNameToHash = GetFileName(pNameToHash);
+		}
 		else
 		{
 			g_szCanonalizedName[MAX_PATH] = 0;
@@ -1343,12 +1391,15 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 				lstrcpy(g_szCanonalizedName, szFilePath);
 
 			if (bStripNames)
-				pNameToHash = PathFindFileName(g_szCanonalizedName);
+				pNameToHash = GetFileName(g_szCanonalizedName);
 			else
 				pNameToHash = g_szCanonalizedName;
 		}
 
 		pHash->Update((LPCBYTE)pNameToHash, _tcslen(pNameToHash) * sizeof(TCHAR));
+
+		if (pCanonicalName)
+			LocalFree(pCanonicalName);
 	}
 
 	f = CreateFileW(szFilePath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
@@ -1415,7 +1466,7 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 	int pathLen = lstrlen(szDirPath);
 	bool bSumVerificationMode = (bSumMode && !digestList.empty());
 
-	if (pathLen <= MAX_PATH && !excludeSpecList.empty() && IsExcludedName(szDirPath, excludeSpecList))
+	if (!excludeSpecList.empty() && IsExcludedName(szDirPath, excludeSpecList))
 		return 0;
 
 
@@ -1428,8 +1479,8 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 
 	if (INVALID_HANDLE_VALUE == hFind)
 	{
-		std::wstring szMsg = FormatString (_T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);
-		dwError = GetLastError();		
+		dwError = GetLastError();
+		std::wstring szMsg = FormatString (_T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);		
 		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, szMsg.c_str());
 		if (g_bSkipError)
 		{
@@ -1502,8 +1553,23 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 	if (bIncludeNames)
 	{
 		LPCTSTR pNameToHash = NULL;
-		if (lstrlen(szDirPath) > MAX_PATH)
-			pNameToHash = szDirPath;
+		LPWSTR pCanonicalName = NULL;
+		if (wcslen(szDirPath) > MAX_PATH)
+		{
+			if (PathAllocCanonicalizePtr)
+			{
+				if (S_OK == PathAllocCanonicalizePtr(szDirPath, PATHCCH_ALLOW_LONG_PATHS, &pCanonicalName))
+					pNameToHash = pCanonicalName;
+				else
+					pNameToHash = szDirPath;
+			}
+			else
+			{
+				pNameToHash = szDirPath;
+			}
+			if (bStripNames)
+				pNameToHash = GetFileName(pNameToHash);
+		}
 		else
 		{
 			g_szCanonalizedName[MAX_PATH] = 0;
@@ -1511,12 +1577,14 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 				lstrcpy(g_szCanonalizedName, szDirPath);
 
 			if (bStripNames)
-				pNameToHash = PathFindFileName(g_szCanonalizedName);
+				pNameToHash = GetFileName(g_szCanonalizedName);
 			else
 				pNameToHash = g_szCanonalizedName;
 		}
 
 		pHash->Update((LPCBYTE)pNameToHash, _tcslen(pNameToHash) * sizeof(TCHAR));
+		if (pCanonicalName)
+			LocalFree(pCanonicalName);
 	}
 
 	for (list<CDirContent>::iterator it = dirContent.begin(); it != dirContent.end(); it++)
@@ -2103,6 +2171,32 @@ BOOL WINAPI CtrlHandler(DWORD fdwCtrlType)
 	}
 }
 
+bool GetPathType(LPCWSTR szPath, bool& bIsFile)
+{
+	struct _stat buf;
+	std::wstring drivePath;
+	bIsFile = false;
+	if (wcslen(szPath) == 2 && szPath[1] == L':')
+	{
+		drivePath = szPath;
+		drivePath += L"\\";
+		szPath = drivePath.c_str();
+	}
+	if ((0 == _wstat(szPath, &buf)) && (buf.st_mode & (_S_IFDIR | _S_IFREG)))
+	{
+		bIsFile = (buf.st_mode & _S_IFREG)? true : false;
+		return true;
+	}
+	else
+		return false;
+}
+
+BOOL IsPathValid(LPCWSTR szPath)
+{
+	bool bDummy;
+	return GetPathType(szPath, bDummy);
+}
+
 int _tmain(int argc, _TCHAR* argv[])
 {
 	size_t length_of_arg;
@@ -2129,6 +2223,13 @@ int _tmain(int argc, _TCHAR* argv[])
 	bool bBenchmarkAllAlgos = false;
 	CConsoleUnicodeOutputInitializer conUnicode;
 	bool bUseThreads = false;
+	bool bIsFile = false;
+	OSVERSIONINFOW versionInfo;
+
+	if (GetWindowsVersion(&versionInfo) && (versionInfo.dwMajorVersion >= 10))
+	{
+		PathAllocCanonicalizePtr = (PathAllocCanonicalizeFn)GetProcAddress(GetModuleHandle(L"KernelBase.dll"), "PathAllocCanonicalize");
+	}
 
 	g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 
@@ -2140,7 +2241,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	setbuf(stdout, NULL);
 
-	SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2020"));
+	SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2021"));
 
 	SetConsoleCtrlHandler(CtrlHandler, TRUE);
 
@@ -2391,19 +2492,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		return dwError;
 	}
 
-	// Check that the input path plus 3 is not longer than MAX_PATH.
-	// Three characters are for the "\*" plus NULL appended below.
-
-	if ((S_OK != StringCchLength(argv[1], MAX_PATH, &length_of_arg)) || (length_of_arg > (MAX_PATH - 3)))
-	{
-		if (outputFile) fclose(outputFile);
-		delete pHash;
-		if (!bQuiet)
-			ShowError(TEXT("Error: Input directory/file path is too long. Maximum length is %d characters\n"), MAX_PATH);
-		WaitForExit(bDontWait);
-		return (-1);
-	}
-	else if (!PathFileExists(argv[1]))
+	if (!IsPathValid (argv[1]))
 	{
 		if (outputFile) fclose(outputFile);
 		delete pHash;
@@ -2419,7 +2508,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			pHash->GetID(),
 			bVerifyMode? _T("verify") : _T("compute"),
 			bSumMode ? _T("checksum") : _T("hash"),
-			bStripNames ? PathFindFileName(argv[1]) : argv[1]);
+			bStripNames ? GetFileName(argv[1]) : argv[1]);
 		fflush(stdout);
 	}
 
@@ -2442,7 +2531,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		else if (ParseResultFile(verificationFileName.c_str(), digestsList, rawDigestsList))
 		{
 			// 
-			std::wstring entryName = PathFindFileName(argv[1]);
+			std::wstring entryName = GetFileName(argv[1]);
 			map < wstring, HashResultEntry>::iterator It = digestsList.find(entryName);
 			if (It == digestsList.end())
 			{
@@ -2487,7 +2576,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			StartThreads(!bQuiet || outputFile);
 	}
 
-	if (PathIsDirectory(argv[1]))
+	if (GetPathType(argv[1], bIsFile) && !bIsFile)
 	{
 		// remove any trailing backslash to harmonize directory names in case they are included
 		// in hash computations
@@ -2652,7 +2741,7 @@ int _tmain(int argc, _TCHAR* argv[])
 					{
 						_ftprintf(outputFile, __T("%s hash of \"%s\" (%d bytes) = "),
 							pHash->GetID(),
-							PathFindFileName(argv[1]),
+							GetFileName(argv[1]),
 							pHash->GetHashSize());
 					}
 					_tprintf(_T("%s (%d bytes) = "), pHash->GetID(), pHash->GetHashSize());
