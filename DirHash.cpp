@@ -274,7 +274,7 @@ BOOL GetWindowsVersion(OSVERSIONINFOW* pOSversion)
 
 LPCWSTR GetFileName(LPCWSTR szPath)
 {
-	size_t i, len = wcslen(szPath);
+	size_t len = wcslen(szPath);
 	LPCWSTR ptr;
 	if (len <= 1)
 		return szPath;
@@ -2200,7 +2200,6 @@ BOOL IsPathValid(LPCWSTR szPath)
 
 int _tmain(int argc, _TCHAR* argv[])
 {
-	size_t length_of_arg;
 	HANDLE hFind = INVALID_HANDLE_VALUE;
 	DWORD dwError = 0;
 	Hash* pHash = NULL;
