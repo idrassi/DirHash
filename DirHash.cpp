@@ -1627,7 +1627,7 @@ void ShowUsage()
 {
 	ShowLogo();
 	_tprintf(TEXT("Usage: \n")
-		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-skipError] [-nologo] [-exclude pattern1] [-exclude pattern2]\n")
+		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-stripnames] [-skipError] [-nologo] [-exclude pattern1] [-exclude pattern2]\n")
 		TEXT("  DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait] [-nologo]\n")
 		TEXT("\n")
 		TEXT("  Possible values for HashAlgo (not case sensitive, default is Blake3):\n"));
@@ -1649,7 +1649,8 @@ void ShowUsage()
 		TEXT("  -overwrite (only when -t present): output text file will be overwritten\n")
 		TEXT("  -quiet: No text is displayed or written except the hash value\n")
 		TEXT("  -nowait: avoid displaying the waiting prompt before exiting\n")
-		TEXT("  -hashnames: file names will be included in hash computation\n")
+		TEXT("  -hashnames: case sensitive path of the files/directories will be included in the hash computation\n")
+		TEXT("  -stripnames (only when -hashnames present): only last path portion of files/directories is used for hash computation\n")
 		TEXT("  -exclude: specifies a name pattern for files to exclude from hash computation.\n")
 		TEXT("  -skipError: ignore any encountered errors and continue processing.\n")
 		TEXT("  -nologo: don't display the copyright message and version number on startup.\n")
