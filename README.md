@@ -2,7 +2,7 @@
 Windows command line utility to compute hash of directories and files
 =====================================================================
 
-Copyright (c) 2015-2020 Mounir IDRASSI
+Copyright (c) 2015-2021 Mounir IDRASSI
 mounir@idrix.fr
 
 3-clause BSD license ("New BSD License")
