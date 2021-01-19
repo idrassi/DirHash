@@ -2174,7 +2174,7 @@ BOOL WINAPI CtrlHandler(DWORD fdwCtrlType)
 
 bool GetPathType(LPCWSTR szPath, bool& bIsFile)
 {
-	struct _stat buf;
+	struct _stat64 buf;
 	std::wstring drivePath;
 	bIsFile = false;
 	if (wcslen(szPath) == 2 && szPath[1] == L':')
@@ -2183,7 +2183,7 @@ bool GetPathType(LPCWSTR szPath, bool& bIsFile)
 		drivePath += L"\\";
 		szPath = drivePath.c_str();
 	}
-	if ((0 == _wstat(szPath, &buf)) && (buf.st_mode & (_S_IFDIR | _S_IFREG)))
+	if ((0 == _wstat64(szPath, &buf)) && (buf.st_mode & (_S_IFDIR | _S_IFREG)))
 	{
 		bIsFile = (buf.st_mode & _S_IFREG)? true : false;
 		return true;
