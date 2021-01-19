@@ -51,8 +51,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,16,0,0
- PRODUCTVERSION 1,16,0,0
+ FILEVERSION 1,17,0,0
+ PRODUCTVERSION 1,17,0,0
  FILEFLAGSMASK 0x17L
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -70,12 +70,12 @@ BEGIN
             VALUE "Comments", "By Mounir IDRASSI"
             VALUE "CompanyName", "IDRIX"
             VALUE "FileDescription", "compute Hash of dorectories and files"
-            VALUE "FileVersion", "1.16.0.0"
+            VALUE "FileVersion", "1.17.0.0"
             VALUE "InternalName", "DirHash"
-            VALUE "LegalCopyright", "Copyright (C) 2020 IDRIX"
+            VALUE "LegalCopyright", "Copyright (C) 2021 IDRIX"
             VALUE "OriginalFilename", "DirHash.exe"
             VALUE "ProductName", "DirHash Application"
-            VALUE "ProductVersion", "1.16.0.0"
+            VALUE "ProductVersion", "1.17.0.0"
         END
     END
     BLOCK "VarFileInfo"
