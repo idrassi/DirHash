@@ -69,7 +69,7 @@ BEGIN
         BEGIN
             VALUE "Comments", "By Mounir IDRASSI"
             VALUE "CompanyName", "IDRIX"
-            VALUE "FileDescription", "compute Hash of dorectories and files"
+            VALUE "FileDescription", "compute Hash of directories and files"
             VALUE "FileVersion", "1.18.0.0"
             VALUE "InternalName", "DirHash"
             VALUE "LegalCopyright", "Copyright (C) 2021 IDRIX"
