@@ -64,11 +64,14 @@ If `-skipError` is specified, ignore any encountered errors and continue process
 If `-nologo` is specified, don't display the copyright message and version number on startup.
 
 DirHash can also be configured using a configuration file called DirHash.ini and which must be on the same folder as DirHash.exe.
+When `Sum=True` is specified in DirHash.ini, it will have an effect only if "-verify" is not specified in the command line.
 An example of DirHash.ini is shown below:
 
 ```
 [Defaults]
 Hash=Blake3
+Sum=True
+Threads=True
 Quiet=False
 Nologo=True
 NoWait=True
