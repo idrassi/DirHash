@@ -833,7 +833,7 @@ public:
 			m_szPath[wcslen(szPath) - 1] = _T('\\');
 
 		if (szPath[wcslen(szPath) - 1] != _T('\\'))
-			m_szPath += _T("\\");
+		m_szPath += _T("\\");
 		m_szPath += szName;
 	}
 
@@ -1779,18 +1779,39 @@ void PerformBenchmark(Hash* pHash, bool bQuiet, bool bCopyToClipboard)
 	}
 }
 
-void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& bShowProgress, bool& bCopyToClipboard, bool& bIncludeNames, bool& bStripNames, bool& bLowerCase, bool& bUseMsCrypto, bool& bSkipError, bool& bNoLogo)
+// structure used to hold value from DirHash.ini
+typedef struct
 {
-	hashAlgoToUse = L"Blake3";
-	bUseMsCrypto = false;
-	bDontWait = false;
-	bIncludeNames = false;
-	bStripNames = false;
-	bQuiet = false;
-	bCopyToClipboard = false;
-	bShowProgress = false;
-	bLowerCase = false;
-	bSkipError = false;
+	wstring hashAlgoToUse;
+	bool bQuiet;
+	bool bDontWait;
+	bool bShowProgress;
+	bool bCopyToClipboard;
+	bool bIncludeNames;
+	bool bStripNames;
+	bool bLowerCase;
+	bool bUseMsCrypto;
+	bool bSkipError;
+	bool bNoLogo;
+	bool bForceSumMode;
+	bool bUseThreads;
+} ConfigParams;
+
+void LoadDefaults(ConfigParams& iniParams)
+{
+	iniParams.hashAlgoToUse = L"Blake3";
+	iniParams.bUseMsCrypto = false;
+	iniParams.bDontWait = false;
+	iniParams.bIncludeNames = false;
+	iniParams.bStripNames = false;
+	iniParams.bQuiet = false;
+	iniParams.bCopyToClipboard = false;
+	iniParams.bShowProgress = false;
+	iniParams.bLowerCase = false;
+	iniParams.bSkipError = false;
+	iniParams.bNoLogo = false;
+	iniParams.bForceSumMode = false;
+	iniParams.bUseThreads = false;
 
 	// get values from DirHash.ini fille if it exists
 	WCHAR szInitPath[1024];
@@ -1807,87 +1828,103 @@ void LoadDefaults(wstring& hashAlgoToUse, bool& bQuiet, bool& bDontWait, bool& b
 			WCHAR szValue[128];
 			if (GetPrivateProfileStringW(L"Defaults", L"Hash", L"Blake3", szValue, ARRAYSIZE(szValue), szInitPath) && Hash::IsHashId (szValue))
 			{
-				hashAlgoToUse = szValue;
+				iniParams.hashAlgoToUse = szValue;
 			}
 
 			if (GetPrivateProfileStringW(L"Defaults", L"Quiet", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
 			{
 				if (_wcsicmp(szValue, L"True") == 0)
-					bQuiet = true;
+					iniParams.bQuiet = true;
 				else
-					bQuiet = false;
+					iniParams.bQuiet = false;
 			}
 
 			if (GetPrivateProfileStringW(L"Defaults", L"NoWait", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
 			{
 				if (_wcsicmp(szValue, L"True") == 0)
-					bDontWait = true;
+					iniParams.bDontWait = true;
 				else
-					bDontWait = false;
+					iniParams.bDontWait = false;
 			}
 
 			if (GetPrivateProfileStringW(L"Defaults", L"ShowProgress", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
 			{
 				if (_wcsicmp(szValue, L"True") == 0)
-					bShowProgress = true;
+					iniParams.bShowProgress = true;
 				else
-					bShowProgress = false;
+					iniParams.bShowProgress = false;
 			}
 
 			if (GetPrivateProfileStringW(L"Defaults", L"hashnames", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
 			{
 				if (_wcsicmp(szValue, L"True") == 0)
-					bIncludeNames = true;
+					iniParams.bIncludeNames = true;
 				else
-					bIncludeNames = false;
+					iniParams.bIncludeNames = false;
 			}
 
 			if (GetPrivateProfileStringW(L"Defaults", L"stripnames", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
 			{
 				if (_wcsicmp(szValue, L"True") == 0)
-					bStripNames = true;
+					iniParams.bStripNames = true;
 				else
-					bStripNames = false;
+					iniParams.bStripNames = false;
 			}
 
 			if (GetPrivateProfileStringW(L"Defaults", L"clip", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
 			{
 				if (_wcsicmp(szValue, L"True") == 0)
-					bCopyToClipboard = true;
+					iniParams.bCopyToClipboard = true;
 				else
-					bCopyToClipboard = false;
+					iniParams.bCopyToClipboard = false;
 			}
 
 			if (GetPrivateProfileStringW(L"Defaults", L"lowercase", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
 			{
 				if (_wcsicmp(szValue, L"True") == 0)
-					bLowerCase = true;
+					iniParams.bLowerCase = true;
 				else
-					bLowerCase = false;
+					iniParams.bLowerCase = false;
 			}
 
 			if (GetPrivateProfileStringW(L"Defaults", L"MSCrypto", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
 			{
 				if (_wcsicmp(szValue, L"True") == 0)
-					bUseMsCrypto = true;
+					iniParams.bUseMsCrypto = true;
 				else
-					bUseMsCrypto = false;
+					iniParams.bUseMsCrypto = false;
 			}
 
 			if (GetPrivateProfileStringW(L"Defaults", L"SkipError", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
 			{
 				if (_wcsicmp(szValue, L"True") == 0)
-					bSkipError = true;
+					iniParams.bSkipError = true;
 				else
-					bSkipError = false;
+					iniParams.bSkipError = false;
 			}
 
 			if (GetPrivateProfileStringW(L"Defaults", L"NoLogo", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
 			{
 				if (_wcsicmp(szValue, L"True") == 0)
-					bNoLogo = true;
+					iniParams.bNoLogo = true;
 				else
-					bNoLogo = false;
+					iniParams.bNoLogo = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"Sum", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					iniParams.bForceSumMode = true;
+				else
+					iniParams.bForceSumMode = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"Threads", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					iniParams.bUseThreads = true;
+				else
+					iniParams.bUseThreads = false;
 			}
 		}
 	}
@@ -2224,7 +2261,9 @@ int _tmain(int argc, _TCHAR* argv[])
 	CConsoleUnicodeOutputInitializer conUnicode;
 	bool bUseThreads = false;
 	bool bIsFile = false;
+	bool bForceSumMode = false;
 	OSVERSIONINFOW versionInfo;
+	ConfigParams iniParams;
 
 	if (GetWindowsVersion(&versionInfo) && (versionInfo.dwMajorVersion >= 10))
 	{
@@ -2252,7 +2291,20 @@ int _tmain(int argc, _TCHAR* argv[])
 		return 1;
 	}
 
-	LoadDefaults(hashAlgoToUse, bQuiet, bDontWait, bShowProgress, bCopyToClipboard, bIncludeNames, bStripNames, g_bLowerCase, g_bUseMsCrypto, g_bSkipError, g_bNoLogo);
+	LoadDefaults(iniParams);
+	hashAlgoToUse = iniParams.hashAlgoToUse;
+	bQuiet = iniParams.bQuiet;
+	bDontWait = iniParams.bDontWait;
+	bShowProgress = iniParams.bShowProgress;
+	bCopyToClipboard = iniParams.bCopyToClipboard;
+	bIncludeNames = iniParams.bIncludeNames;
+	bStripNames = iniParams.bStripNames;
+	g_bLowerCase = iniParams.bLowerCase;
+	g_bUseMsCrypto = iniParams.bUseMsCrypto;
+	g_bSkipError = iniParams.bSkipError;
+	g_bNoLogo = iniParams.bNoLogo;
+	bForceSumMode =  iniParams.bForceSumMode;
+	bUseThreads = iniParams.bUseThreads;
 
 	if (_tcscmp(argv[1], _T("-benchmark")) == 0)
 		bBenchmarkOp = true;
@@ -2501,6 +2553,10 @@ int _tmain(int argc, _TCHAR* argv[])
 		WaitForExit(bDontWait);
 		return (-2);
 	}
+
+	// in case "-verify" was not specified, set SUM mode if it was specied in DirHash.ini
+	if (!bVerifyMode && bForceSumMode)
+		bSumMode = true;
 
 	if (!bQuiet)
 	{
