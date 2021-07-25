@@ -117,6 +117,8 @@ static HANDLE g_hOutputReadyEvent = NULL;
 static HANDLE g_hOutputStopEvent = NULL;
 static HANDLE g_hOutputThread = NULL;
 static std::wstring g_szLastErrorMsg;
+static wstring g_currentDirectory;
+static bool g_sumFileSkipped = false;
 
 
 typedef BOOL(WINAPI* SetThreadGroupAffinityFn)(
@@ -137,7 +139,21 @@ typedef HRESULT(WINAPI* PathAllocCanonicalizeFn)(
 	PWSTR* ppszPathOut
 );
 
+typedef HRESULT(WINAPI *PathCchSkipRootFn)(
+	PCWSTR pszPath,
+	PCWSTR* ppszRootEnd
+);
+
+typedef HRESULT(WINAPI *PathAllocCombineFn)(
+	_In_opt_ PCWSTR pszPathIn,
+	_In_opt_ PCWSTR pszMore,
+	_In_ ULONG dwFlags,
+	_Outptr_ PWSTR* ppszPathOut
+);
+
 PathAllocCanonicalizeFn PathAllocCanonicalizePtr = NULL;
+PathAllocCombineFn PathAllocCombinePtr = NULL;
+PathCchSkipRootFn PathCchSkipRootPtr = NULL;
 
 // Used for sorting directory content
 bool compare_nocase(LPCWSTR first, LPCWSTR second)
@@ -295,6 +311,175 @@ LPCWSTR GetFileName(LPCWSTR szPath)
 		return ptr;
 }
 
+bool IsDriveLetter(WCHAR c)
+{
+	return ((c >= L'A' && c <= L'Z') || (c >= L'a' && c <= L'z'));
+}
+
+bool IsAbsolutPath(LPCWSTR szPath)
+{
+	bool bRet = false;
+	size_t pathLen = wcslen(szPath);
+	if (pathLen > MAX_PATH)
+	{
+		if (PathCchSkipRootPtr)
+		{
+			LPCWSTR ptr = NULL;
+			HRESULT hr = PathCchSkipRootPtr(szPath, &ptr);
+			if (S_OK == hr)
+				bRet = true;
+		}
+		else
+		{
+			// do the check manually by looking for drive letter or "\\serverName\" prefix
+			if (pathLen >= 4 && szPath[1] == L':' && szPath[2] == L'\\' && IsDriveLetter(szPath[0]))
+				bRet = true;
+			else if (pathLen >= 5 && szPath[0] == L'\\' && szPath[1] == L'\\')
+			{
+				for (size_t i = 2; i < (pathLen - 1); i++)
+				{
+					if (szPath[i] == L'\\')
+					{
+						bRet = true;
+						break;
+					}
+				}
+			}
+		}
+	}
+	else
+	{
+		if (!PathIsRelativeW(szPath))
+			bRet = true;
+	}
+
+	return bRet;
+}
+
+wstring EnsureAbsolut(LPCWSTR szPath)
+{
+	wstring strVal = szPath;
+	size_t pathLen = wcslen(szPath);
+	WCHAR g_szCanonalizedName[MAX_PATH + 1];
+	if (pathLen)
+	{
+		std::replace(strVal.begin(), strVal.end(), L'/', L'\\');
+		if (IsAbsolutPath(strVal.c_str()))
+		{
+			if (pathLen > MAX_PATH)
+			{
+				if (PathAllocCanonicalizePtr)
+				{
+					LPWSTR pCanonicalName = NULL;
+					if (S_OK == PathAllocCanonicalizePtr(strVal.c_str(), PATHCCH_ALLOW_LONG_PATHS, &pCanonicalName))
+						strVal = pCanonicalName;
+
+					if (pCanonicalName)
+						LocalFree(pCanonicalName);
+				}
+			}
+			else
+			{
+
+				if (PathCanonicalizeW(g_szCanonalizedName, strVal.c_str()))
+					strVal = g_szCanonalizedName;
+			}
+		}
+		else
+		{
+			bool bDone = false;
+			LPCWSTR szParent = g_currentDirectory.c_str();
+			if (PathAllocCombinePtr)
+			{
+				LPWSTR szCombined = NULL;
+				HRESULT hr = PathAllocCombinePtr(szParent, strVal.c_str(), PATHCCH_ALLOW_LONG_PATHS, &szCombined);
+				if (S_OK == hr)
+				{
+					strVal = szCombined;
+					bDone = true;
+				}
+
+				if (szCombined)
+					LocalFree(szCombined);
+			}
+
+			if (!bDone && ((wcslen(szParent) + pathLen) < MAX_PATH))
+			{
+				if (PathCombineW(g_szCanonalizedName, szParent, strVal.c_str()))
+				{
+					strVal = g_szCanonalizedName;
+					bDone = true;
+				}
+			}
+
+			if (!bDone)
+			{
+				if ((pathLen >= 2) && strVal[0] == L'\\' && strVal[1] != L'\\')
+				{
+					// use drive letter of current directory
+					WCHAR szDrv[3] = { szParent[0], szParent[1], 0 };
+					strVal = szDrv + strVal;
+				}
+				else
+					strVal = szParent + strVal;
+			}
+		}
+	}
+
+	return strVal;
+}
+
+class CPath
+{
+protected:
+	std::wstring m_path;
+	std::wstring m_absolutPath;
+public:
+	CPath()
+	{
+
+	}
+
+	explicit CPath(LPCWSTR szPath) : m_path(szPath)
+	{
+		m_absolutPath = EnsureAbsolut(szPath);
+	}
+
+	CPath(LPCWSTR szPath, LPCWSTR szAbsolutPath) : m_path(szPath), m_absolutPath(szPath)
+	{
+
+	}
+
+	CPath(const CPath& path) : m_path(path.m_path), m_absolutPath(path.m_absolutPath)
+	{
+
+	}
+
+	CPath& operator = (const CPath& p)
+	{
+		m_path = p.m_path;
+		m_absolutPath = p.m_absolutPath;
+		return *this;
+	}
+
+	CPath& operator = (LPCWSTR p)
+	{
+		m_path = p;
+		m_absolutPath = EnsureAbsolut(p);
+		return *this;
+	}
+
+	void AppendName(LPCWSTR szName)
+	{
+		m_path += L"\\";
+		m_path += szName;
+		m_absolutPath += L"\\";
+		m_absolutPath += szName;
+	}
+
+	const std::wstring& GetPathValue() const { return m_path; }
+	const std::wstring& GetAbsolutPathValue() const { return m_absolutPath; }
+};
 
 // ---------------------------------------------
 /*
@@ -824,24 +1009,26 @@ public:
 class CDirContent
 {
 protected:
-	wstring m_szPath;
+	CPath m_szPath;
 	bool m_bIsDir;
 public:
-	CDirContent(LPCWSTR szPath, LPCWSTR szName, bool bIsDir) : m_bIsDir(bIsDir), m_szPath(szPath)
+	CDirContent(CPath szPath, LPCWSTR szName, bool bIsDir) : m_bIsDir(bIsDir), m_szPath(szPath)
 	{
-		if (szPath[wcslen(szPath) - 1] == _T('/'))
-			m_szPath[wcslen(szPath) - 1] = _T('\\');
-
-		if (szPath[wcslen(szPath) - 1] != _T('\\'))
-		m_szPath += _T("\\");
-		m_szPath += szName;
+		m_szPath.AppendName(szName);
 	}
 
 	CDirContent(const CDirContent& content) : m_bIsDir(content.m_bIsDir), m_szPath(content.m_szPath) {}
 
+	CDirContent& operator = (const CDirContent& content)
+	{
+		m_bIsDir = content.m_bIsDir;
+		m_szPath = content.m_szPath;
+		return *this;
+	}
+
 	bool IsDir() const { return m_bIsDir; }
-	LPCWSTR GetPath() const { return m_szPath.c_str(); }
-	operator LPCWSTR () { return m_szPath.c_str(); }
+	const CPath& GetPath() const { return m_szPath; }
+	operator LPCWSTR () { return m_szPath.GetPathValue().c_str(); }
 };
 
 bool IsExcludedName(LPCTSTR szName, list<wstring>& excludeSpecList)
@@ -1311,12 +1498,15 @@ void StopThreads(bool bError)
 }
 
 
+static CPath g_outputFileName;
+static CPath g_verificationFileName;
 
-DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
+DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
 {
 	DWORD dwError = 0;
 	HANDLE f;
 	LARGE_INTEGER fileSize;
+	LPCWSTR szFilePath = filePath.GetPathValue().c_str();
 	int pathLen = lstrlen(szFilePath);
 	map<wstring, HashResultEntry>::const_iterator It;
 	bool bSumVerificationMode = false;
@@ -1456,14 +1646,14 @@ DWORD HashFile(LPCTSTR szFilePath, Hash* pHash, bool bIncludeNames, bool bStripN
 	return dwError;
 }
 
-DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
+DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
 {
 	wstring szDir;
 	WIN32_FIND_DATA ffd;
 	HANDLE hFind = INVALID_HANDLE_VALUE;
 	DWORD dwError = 0;
 	list<CDirContent> dirContent;
-	int pathLen = lstrlen(szDirPath);
+	LPCWSTR szDirPath = dirPath.GetPathValue().c_str();
 	bool bSumVerificationMode = (bSumMode && !digestList.empty());
 
 	if (!excludeSpecList.empty() && IsExcludedName(szDirPath, excludeSpecList))
@@ -1508,11 +1698,33 @@ DWORD HashDirectory(LPCTSTR szDirPath, Hash* pHash, bool bIncludeNames, bool bSt
 		{
 			// Skip "." and ".." directories
 			if ((_tcscmp(ffd.cFileName, _T(".")) != 0) && (_tcscmp(ffd.cFileName, _T("..")) != 0))
-				dirContent.push_back(CDirContent(szDirPath, ffd.cFileName, true));
+				dirContent.push_back(CDirContent(dirPath, ffd.cFileName, true));
 		}
 		else
 		{
-			dirContent.push_back(CDirContent(szDirPath, ffd.cFileName, false));
+			CDirContent entry(dirPath, ffd.cFileName, false);
+			// skip file holding checksum
+			if (bSumMode && !g_sumFileSkipped)
+			{
+				if (!digestList.empty())
+				{
+					// verification
+					if (0 == _wcsicmp(g_verificationFileName.GetAbsolutPathValue().c_str(), entry.GetPath().GetAbsolutPathValue().c_str()))
+					{
+						g_sumFileSkipped = true;
+						continue;
+					}
+				}
+				else
+				{
+					if (g_outputFileName.GetAbsolutPathValue().empty() || (0 == _wcsicmp(g_outputFileName.GetAbsolutPathValue().c_str(), entry.GetPath().GetAbsolutPathValue().c_str())))
+					{
+						g_sumFileSkipped = true;
+						continue;
+					}
+				}
+			}
+			dirContent.push_back(entry);
 		}
 	}
 	while (FindNextFile(hFind, &ffd) != 0);
@@ -2235,13 +2447,25 @@ BOOL IsPathValid(LPCWSTR szPath)
 	return GetPathType(szPath, bDummy);
 }
 
+wstring GetCurDir()
+{
+	wstring ret;
+	DWORD cchCurDir;
+	LPWSTR wszCurDir = NULL;
+	cchCurDir = GetCurrentDirectoryW(0, NULL);
+	wszCurDir = new WCHAR[cchCurDir];
+	GetCurrentDirectoryW(cchCurDir, wszCurDir);
+	ret = wszCurDir;
+	ret += L"\\";
+	delete[] wszCurDir;
+	return ret;
+}
+
 int _tmain(int argc, _TCHAR* argv[])
 {
 	HANDLE hFind = INVALID_HANDLE_VALUE;
 	DWORD dwError = 0;
 	Hash* pHash = NULL;
-	wstring outputFileName;
-	wstring verificationFileName;
 	bool bDontWait = false;
 	bool bIncludeNames = false;
 	bool bStripNames = false;
@@ -2263,11 +2487,14 @@ int _tmain(int argc, _TCHAR* argv[])
 	bool bIsFile = false;
 	bool bForceSumMode = false;
 	OSVERSIONINFOW versionInfo;
+	wstring inputArg;
 	ConfigParams iniParams;
 
 	if (GetWindowsVersion(&versionInfo) && (versionInfo.dwMajorVersion >= 10))
 	{
 		PathAllocCanonicalizePtr = (PathAllocCanonicalizeFn)GetProcAddress(GetModuleHandle(L"KernelBase.dll"), "PathAllocCanonicalize");
+		PathAllocCombinePtr = (PathAllocCombineFn)GetProcAddress(GetModuleHandle(L"KernelBase.dll"), "PathAllocCombine");
+		PathCchSkipRootPtr = (PathCchSkipRootFn)GetProcAddress(GetModuleHandle(L"KernelBase.dll"), "PathCchSkipRoot");
 	}
 
 	g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -2283,6 +2510,9 @@ int _tmain(int argc, _TCHAR* argv[])
 	SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2021"));
 
 	SetConsoleCtrlHandler(CtrlHandler, TRUE);
+
+	// store the current directory
+	g_currentDirectory = GetCurDir();
 
 	if (argc < 2)
 	{
@@ -2324,7 +2554,7 @@ int _tmain(int argc, _TCHAR* argv[])
 					return 1;
 				}
 
-				outputFileName = argv[i + 1];
+				g_outputFileName = argv[i + 1];
 
 				i++;
 			}
@@ -2411,7 +2641,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
 				bVerifyMode = true;
 
-				verificationFileName = argv[i + 1];
+				g_verificationFileName = argv[i + 1];
 				i++;
 			}
 			else if (_tcscmp(argv[i], _T("-exclude")) == 0)
@@ -2520,9 +2750,9 @@ int _tmain(int argc, _TCHAR* argv[])
 	if (!bQuiet)
 		ShowLogo();
 
-	if (!outputFileName.empty())
+	if (!g_outputFileName.GetPathValue().empty())
 	{
-		outputFile = _tfopen(outputFileName.c_str(), bOverwrite ? _T("wt,ccs=UTF-8") : _T("a+t,ccs=UTF-8"));
+		outputFile = _tfopen(g_outputFileName.GetPathValue().c_str(), bOverwrite ? _T("wt,ccs=UTF-8") : _T("a+t,ccs=UTF-8"));
 		if (!outputFile)
 		{
 			if (!bQuiet)
@@ -2571,7 +2801,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	if (bVerifyMode)
 	{
 
-		if (ParseSumFile(verificationFileName.c_str(), digestsList))
+		if (ParseSumFile(g_verificationFileName.GetPathValue().c_str(), digestsList))
 		{
 			// check that hash length used in the checksum file is the same as the one specified by the user
 			int sumFileHashLen = (int)digestsList.begin()->second.m_digest.size();
@@ -2584,7 +2814,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			}
 			bSumMode = true;
 		}
-		else if (ParseResultFile(verificationFileName.c_str(), digestsList, rawDigestsList))
+		else if (ParseResultFile(g_verificationFileName.GetPathValue().c_str(), digestsList, rawDigestsList))
 		{
 			// 
 			std::wstring entryName = GetFileName(argv[1]);
@@ -2616,7 +2846,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		else
 		{
 			if (!bQuiet)
-				ShowError(TEXT("Error: Failed to parse file \"%s\". Please check that it exists and that its content is valid (either checksum file or result file).\n"), verificationFileName.c_str());
+				ShowError(TEXT("Error: Failed to parse file \"%s\". Please check that it exists and that its content is valid (either checksum file or result file).\n"), g_verificationFileName.GetPathValue().c_str());
 			WaitForExit(bDontWait);
 			return (-3);
 		}
@@ -2632,26 +2862,48 @@ int _tmain(int argc, _TCHAR* argv[])
 			StartThreads(!bQuiet || outputFile);
 	}
 
-	if (GetPathType(argv[1], bIsFile) && !bIsFile)
+	inputArg = argv[1];
+
+	if (GetPathType(inputArg.c_str(), bIsFile) && !bIsFile)
 	{
 		// remove any trailing backslash to harmonize directory names in case they are included
 		// in hash computations
-		int pathLen = lstrlen(argv[1]);
-		TCHAR backslash = 0;
-		if (argv[1][pathLen - 1] == '\\' || argv[1][pathLen - 1] == '/')
-		{
-			backslash = argv[1][pathLen - 1];
-			argv[1][pathLen - 1] = 0;
-		}
+		size_t inputArgLen = wcslen(inputArg.c_str());
+		if (inputArg[inputArgLen - 1] == L'\\' || inputArg[inputArgLen - 1] == L'/')
+			inputArg.erase(inputArgLen - 1, 1);
 
-		dwError = HashDirectory(argv[1], pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
+		CPath dirPath(inputArg.c_str());
+		dwError = HashDirectory(dirPath, pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
 
-		// restore backslash
-		if (backslash)
-			argv[1][pathLen - 1] = backslash;
 	}
 	else
-		dwError = HashFile(argv[1], pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
+	{
+		CPath filePath(inputArg.c_str());
+		dwError = NO_ERROR;
+		if (bSumMode)
+		{
+			if (!digestsList.empty())
+			{
+				// verification
+				if (0 == _wcsicmp(g_verificationFileName.GetAbsolutPathValue().c_str(), filePath.GetAbsolutPathValue().c_str()))
+				{
+					ShowError(L"Input file is the same as SUM verification file. Aborting!");
+					dwError = ERROR_INVALID_PARAMETER;
+				}
+			}
+			else
+			{
+				if (!g_outputFileName.GetAbsolutPathValue().empty() && (0 == _wcsicmp(g_outputFileName.GetAbsolutPathValue().c_str(), filePath.GetAbsolutPathValue().c_str())))
+				{
+					ShowError(L"Input file is the same as SUM result file. Aborting!");
+					dwError = ERROR_INVALID_PARAMETER;
+				}
+			}
+		};
+
+		if (dwError == NO_ERROR)
+			dwError = HashFile(filePath, pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
+	}
 
 	if (bSumMode)
 	{
@@ -2680,16 +2932,16 @@ int _tmain(int argc, _TCHAR* argv[])
 					if (!bQuiet)
 					{
 						if (skippedEntries == 1)
-							ShowWarning(_T("1 entry in \"%s\" was not found:\n"), verificationFileName.c_str());
+							ShowWarning(_T("1 entry in \"%s\" was not found:\n"), g_verificationFileName.GetPathValue().c_str());
 						else
-							ShowWarning(_T("%lu entries in \"%s\" where not found:\n"), (unsigned long)skippedEntries, verificationFileName.c_str());
+							ShowWarning(_T("%lu entries in \"%s\" where not found:\n"), (unsigned long)skippedEntries, g_verificationFileName.GetPathValue().c_str());
 					}
 					if (outputFile)
 					{
 						if (skippedEntries == 1)
-							_ftprintf(outputFile, _T("1 entry in \"%s\" was not found:\n"), verificationFileName.c_str());
+							_ftprintf(outputFile, _T("1 entry in \"%s\" was not found:\n"), g_verificationFileName.GetPathValue().c_str());
 						else
-							_ftprintf(outputFile, _T("%lu entries in \"%s\" where not found:\n"), (unsigned long)skippedEntries, verificationFileName.c_str());
+							_ftprintf(outputFile, _T("%lu entries in \"%s\" where not found:\n"), (unsigned long)skippedEntries, g_verificationFileName.GetPathValue().c_str());
 					}
 
 					unsigned long counter = 1;
@@ -2721,13 +2973,13 @@ int _tmain(int argc, _TCHAR* argv[])
 					{
 						ShowError(_T("Verification of \"%s\" against \"%s\" failed!\n"),
 							argv[1],
-							verificationFileName.c_str());
+							g_verificationFileName.GetPathValue().c_str());
 					}
 					if (outputFile)
 					{
 						_ftprintf(outputFile, _T("Verification of \"%s\" against \"%s\" failed!\n"),
 							argv[1],
-							verificationFileName.c_str());
+							g_verificationFileName.GetPathValue().c_str());
 					}
 					dwError = -7;
 				}
@@ -2737,13 +2989,13 @@ int _tmain(int argc, _TCHAR* argv[])
 					{
 						ShowWarning(_T("Verification of \"%s\" against \"%s\" succeeded.\n"),
 							argv[1],
-							verificationFileName.c_str());
+							g_verificationFileName.GetPathValue().c_str());
 					}
 					if (outputFile)
 					{
 						_ftprintf(outputFile, _T("Verification of \"%s\" against \"%s\" succeeded.\n"),
 							argv[1],
-							verificationFileName.c_str());
+							g_verificationFileName.GetPathValue().c_str());
 					}
 				}
 
@@ -2762,13 +3014,13 @@ int _tmain(int argc, _TCHAR* argv[])
 					{
 						ShowError(_T("Verification of \"%s\" against \"%s\" failed!\n"),
 							argv[1],
-							verificationFileName.c_str());
+							g_verificationFileName.GetPathValue().c_str());
 					}
 					if (outputFile)
 					{
 						_ftprintf(outputFile, _T("Verification of \"%s\" against \"%s\" failed!\n"),
 							argv[1],
-							verificationFileName.c_str());
+							g_verificationFileName.GetPathValue().c_str());
 					}
 					dwError = -7;
 				}
@@ -2778,13 +3030,13 @@ int _tmain(int argc, _TCHAR* argv[])
 					{
 						ShowWarning(_T("Verification of \"%s\" against \"%s\" succeeded.\n"),
 							argv[1],
-							verificationFileName.c_str());
+							g_verificationFileName.GetPathValue().c_str());
 					}
 					if (outputFile)
 					{
 						_ftprintf(outputFile, _T("Verification of \"%s\" against \"%s\" succeeded.\n"),
 							argv[1],
-							verificationFileName.c_str());
+							g_verificationFileName.GetPathValue().c_str());
 					}
 				}
 			}
