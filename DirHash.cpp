@@ -2292,9 +2292,9 @@ bool ParseResultFile(const wchar_t* resultFile, map<wstring, HashResultEntry>& p
 	return bRet;
 }
 
-bool ParseSumFile(const wchar_t* sumFile, map<wstring, HashResultEntry>& digestList)
+bool ParseSumFile(const wchar_t* sumFile, map<wstring, HashResultEntry>& digestList, vector<int>& skippedLines)
 {
-	bool bRet = false;
+	bool bRet = false;	
 	// SUM files are created using UTF-8 encoding in order to support UNICODE file names
 	FILE* f = _wfopen(sumFile, L"rt,ccs=UTF-8");
 	if (f)
@@ -2303,8 +2303,10 @@ bool ParseSumFile(const wchar_t* sumFile, map<wstring, HashResultEntry>& digestL
 		ByteArray buffer(4096 * 2);
 		wchar_t* szLine = (wchar_t*)buffer.data();
 		size_t digestLen = 0;
+		int lineNumber = 0;
 		
 		digestList.clear();
+		skippedLines.clear();
 
 		while (fgetws(szLine, (int)(buffer.size() / 2), f))
 		{
@@ -2315,8 +2317,12 @@ bool ParseSumFile(const wchar_t* sumFile, map<wstring, HashResultEntry>& digestL
 				l--;
 			}
 
+			lineNumber++;
+
 			if (l == 0)
 				continue;
+
+			bFailed = true;
 
 			// extract hash which is followed by two or one space characters
 			wchar_t* ptr = wcschr(szLine, L' ');
@@ -2345,29 +2351,21 @@ bool ParseSumFile(const wchar_t* sumFile, map<wstring, HashResultEntry>& digestL
 							std::replace(entryName.begin(), entryName.end(), L'/', L'\\');
 							digestLen = digest.size();
 							digestList[entryName].m_digest = digest;
-						}
-						else
-						{
-							bFailed = true;
-							break;
+							bFailed = false;
 						}
 					}
-					else
-					{
-						bFailed = true;
-						break;
-					}
-				}
-				else
-				{
-					bFailed = true;
-					break;
 				}
 			}
-			else
+
+			if (bFailed)
 			{
-				bFailed = true;
-				break;
+				if (lineNumber > 1)
+				{
+					skippedLines.push_back(lineNumber);
+					bFailed = false;
+				}
+				else
+					break;
 			}
 		}
 		fclose(f);
@@ -2480,6 +2478,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	bool bBenchmarkOp = false;
 	map < wstring, HashResultEntry> digestsList;
 	map < int, ByteArray> rawDigestsList;
+	vector < int > skippedLines;
 	ByteArray verifyDigest;
 	bool bBenchmarkAllAlgos = false;
 	CConsoleUnicodeOutputInitializer conUnicode;
@@ -2760,6 +2759,13 @@ int _tmain(int argc, _TCHAR* argv[])
 				ShowError(_T("!!!Failed to open the result file for writing!!!\n"));
 			}
 		}
+		else if (!bOverwrite)
+		{
+			// add a new Line to the file to avoid issues with existing content
+			__int64 fileLength = _filelengthi64(_fileno(outputFile));
+			if (fileLength > 0)
+				_ftprintf(outputFile, L"\n");
+		}
 	}
 
 	if (bBenchmarkOp)
@@ -2801,7 +2807,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	if (bVerifyMode)
 	{
 
-		if (ParseSumFile(g_verificationFileName.GetPathValue().c_str(), digestsList))
+		if (ParseSumFile(g_verificationFileName.GetPathValue().c_str(), digestsList, skippedLines))
 		{
 			// check that hash length used in the checksum file is the same as the one specified by the user
 			int sumFileHashLen = (int)digestsList.begin()->second.m_digest.size();
@@ -2996,6 +3002,30 @@ int _tmain(int argc, _TCHAR* argv[])
 						_ftprintf(outputFile, _T("Verification of \"%s\" against \"%s\" succeeded.\n"),
 							argv[1],
 							g_verificationFileName.GetPathValue().c_str());
+					}
+				}
+
+				if (!skippedLines.empty())
+				{
+					if (!bQuiet)
+						ShowWarning(_T("\n%d line(s) were skipped in \"%s\" because they are corrupted.\nSkipped lines numbers are: "), (int)skippedLines.size(), g_verificationFileName.GetPathValue().c_str());						
+					if (outputFile)
+						_tprintf(_T("\n%d line(s) were skipped in \"%s\" because they are corrupted.\nSkipped lines numbers are: "), (int)skippedLines.size(), g_verificationFileName.GetPathValue().c_str());
+						
+					for (size_t i = 0; i < min(skippedLines.size(), 9); i++)
+					{
+						if (!bQuiet)
+							ShowWarning(_T("%d "), skippedLines[i]);							
+						if (outputFile)
+							_tprintf(_T("%d "), skippedLines[i]);							
+					}
+
+					if (skippedLines.size() > 9)
+					{
+						if (!bQuiet)
+							ShowWarning(_T("... %d\n"), skippedLines[skippedLines.size() - 1]);							
+						if (outputFile)
+							_tprintf(_T("... %d\n"), skippedLines[skippedLines.size() - 1]);
 					}
 				}
 
