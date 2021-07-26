@@ -1726,7 +1726,9 @@ DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool 
 				}
 				else
 				{
-					if (g_outputFileName.GetAbsolutPathValue().empty() || (0 == _wcsicmp(g_outputFileName.GetAbsolutPathValue().c_str(), entry.GetPath().GetAbsolutPathValue().c_str())))
+					if (g_outputFileName.GetAbsolutPathValue().empty())
+						g_sumFileSkipped = true;
+					else if  (0 == _wcsicmp(g_outputFileName.GetAbsolutPathValue().c_str(), entry.GetPath().GetAbsolutPathValue().c_str()))
 					{
 						g_sumFileSkipped = true;
 						continue;
