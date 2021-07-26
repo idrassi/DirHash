@@ -249,24 +249,60 @@ std::wstring FormatString(LPCTSTR fmt, ...)
 	return ret;
 }
 
+void ReplaceAll(std::wstring& str, const std::wstring& from, const std::wstring& to) {
+	if (from.length())
+	{
+		size_t start_pos = 0;
+		while ((start_pos = str.find(from, start_pos)) != std::wstring::npos) {
+			str.replace(start_pos, from.length(), to);
+			start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
+		}
+	}
+}
+
+void SanitizeString(std::wstring& str)
+{
+	ReplaceAll(str, L"%", L"%%");
+}
+
+void ShowMessage(WORD attributes, LPCTSTR szMsg, va_list args)
+{
+	SetConsoleTextAttribute(g_hConsole, attributes);
+	_vtprintf(szMsg, args);
+	SetConsoleTextAttribute(g_hConsole, g_wCurrentAttributes);
+}
+
+void ShowMessageDirect(WORD attributes, LPCTSTR szMsg)
+{	
+	SetConsoleTextAttribute(g_hConsole, attributes);
+	_tprintf(szMsg);
+	SetConsoleTextAttribute(g_hConsole, g_wCurrentAttributes);
+}
+
 void ShowError(LPCTSTR szMsg, ...)
 {
 	va_list args;
 	va_start(args, szMsg);
-	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
-	_vtprintf(szMsg, args);
-	SetConsoleTextAttribute(g_hConsole, g_wCurrentAttributes);
+	ShowMessage (FOREGROUND_RED | FOREGROUND_INTENSITY, szMsg, args);
 	va_end(args);
+}
+
+void ShowErrorDirect(LPCTSTR szMsg)
+{
+	ShowMessageDirect (FOREGROUND_RED | FOREGROUND_INTENSITY, szMsg);
 }
 
 void ShowWarning(LPCTSTR szMsg, ...)
 {
 	va_list args;
 	va_start(args, szMsg);
-	SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
-	_vtprintf(szMsg, args);
-	SetConsoleTextAttribute(g_hConsole, g_wCurrentAttributes);
+	ShowMessage(FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY, szMsg, args);
 	va_end(args);
+}
+
+void ShowWarningDirect(LPCTSTR szMsg)
+{
+	ShowMessageDirect(FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY, szMsg);
 }
 
 typedef  NTSTATUS(WINAPI* RtlGetVersionFn)(
@@ -1261,6 +1297,7 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 				g_bMismatchFound = true;
 
 				std::wstring szMsg = FormatString(L"Hash value mismatch for \"%s\"\n", szFilePath);
+				SanitizeString(szMsg);
 
 				if (g_threadsCount)
 				{
@@ -1271,7 +1308,7 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 				}
 				else
 				{
-					if (!bQuiet) ShowWarning(szMsg.c_str());
+					if (!bQuiet) ShowWarningDirect(szMsg.c_str());
 					if (outputFile) _ftprintf(outputFile, szMsg.c_str());
 				}				
 			}
@@ -1292,6 +1329,7 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 			else
 				szMsg += szFilePath;
 			szMsg += L"\n";
+			SanitizeString(szMsg);
 
 			if (g_threadsCount)
 			{
@@ -1302,7 +1340,7 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 			}
 			else
 			{
-				if (!bQuiet) ShowWarning(szMsg.c_str());
+				if (!bQuiet) ShowWarningDirect(szMsg.c_str());
 				if (outputFile) _ftprintf(outputFile, szMsg.c_str());
 			}
 		}
@@ -1323,12 +1361,13 @@ DWORD WINAPI OutputThreadCode(LPVOID pArg)
 		while (!g_bFatalError && (pOutput = (OUTPUT_ITEM*)InterlockedPopEntrySList(g_outputsList)))
 		{
 			p = pOutput->pParam;
+			SanitizeString(*p);
 			if (!pOutput->bQuiet)
 			{
 				if (pOutput->bError)
-					ShowError(p->c_str());
+					ShowErrorDirect(p->c_str());
 				else
-					ShowWarning(p->c_str());
+					ShowWarningDirect(p->c_str());
 			}
 			if (!pOutput->bSkipOutputFile) if (outputFile) _ftprintf(outputFile, p->c_str());
 			delete p;
@@ -1533,6 +1572,7 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 			if (It == digestList.end())
 			{
 				std::wstring szMsg = FormatString(_T("Error: file \"%s\" not found in checksum file.\n"), szFilePath);
+				SanitizeString(szMsg);
 				
 				if (outputFile) _ftprintf(outputFile, szMsg.c_str());
 				if (g_bSkipError)
@@ -1542,7 +1582,7 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 						if (g_threadsCount)
 							AddOutputEntry(new std::wstring(szMsg), bQuiet, true, true);
 						else
-							ShowError(szMsg.c_str());
+							ShowErrorDirect(szMsg.c_str());
 					}
 					g_bMismatchFound = true;
 					return 0;					
@@ -1626,7 +1666,7 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 	else
 	{
 		std::wstring szMsg = FormatString (_T("Failed to open file \"%s\" for reading (error 0x%.8X)\n"), szFilePath, GetLastError());
-		
+		SanitizeString(szMsg);
 		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, szMsg.c_str());
 		if (g_bSkipError)
 		{
@@ -1637,7 +1677,7 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 					AddOutputEntry(new std::wstring(szMsg), bQuiet, true, true);
 				}
 				else
-					ShowError(szMsg.c_str());
+					ShowErrorDirect(szMsg.c_str());
 			}
 			
 			if (bSumMode) g_bMismatchFound = true;
@@ -1679,7 +1719,8 @@ DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool 
 	if (INVALID_HANDLE_VALUE == hFind)
 	{
 		dwError = GetLastError();
-		std::wstring szMsg = FormatString (_T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);		
+		std::wstring szMsg = FormatString (_T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);	
+		SanitizeString(szMsg);
 		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, szMsg.c_str());
 		if (g_bSkipError)
 		{
@@ -1688,7 +1729,7 @@ DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool 
 				if (g_threadsCount)
 					AddOutputEntry(new std::wstring(szMsg), bQuiet, true, true);
 				else
-					ShowError(szMsg.c_str());
+					ShowErrorDirect(szMsg.c_str());
 			}
 			return 0;
 		}
@@ -1744,6 +1785,7 @@ DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool 
 	if (dwError != ERROR_NO_MORE_FILES)
 	{
 		std::wstring szMsg = FormatString (TEXT("FindNextFile failed while listing \"%s\". \n Error 0x%.8X.\n"), szDirPath, dwError);
+		SanitizeString(szMsg);
 		FindClose(hFind);
 		
 		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, szMsg.c_str());
@@ -1754,7 +1796,7 @@ DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool 
 				if (g_threadsCount)
 					AddOutputEntry(new std::wstring(szMsg), bQuiet, true, true);
 				else
-					ShowError(szMsg.c_str());
+					ShowErrorDirect(szMsg.c_str());
 			}
 			return 0;
 		}
@@ -3159,7 +3201,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	else
 	{
 		if (wcslen(g_szLastErrorMsg.c_str()))
-			ShowError(g_szLastErrorMsg.c_str());
+			ShowErrorDirect(g_szLastErrorMsg.c_str());
 	}
 
 	delete pHash;
