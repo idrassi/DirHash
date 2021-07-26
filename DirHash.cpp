@@ -119,6 +119,9 @@ static HANDLE g_hOutputThread = NULL;
 static std::wstring g_szLastErrorMsg;
 static wstring g_currentDirectory;
 static bool g_sumFileSkipped = false;
+static bool g_bSumRelativePath = false;
+static wstring g_inputDirPath;
+static size_t g_inputDirPathLength = 0;
 
 
 typedef BOOL(WINAPI* SetThreadGroupAffinityFn)(
@@ -1281,7 +1284,13 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 
 			std::wstring szMsg = szDigestHex;
 			szMsg += L"  ";
-			szMsg += szFilePath;
+			if (g_bSumRelativePath)
+			{
+				// remove the input directory from the path written to the SUM file
+				szMsg += (szFilePath + g_inputDirPathLength);
+			}
+			else
+				szMsg += szFilePath;
 			szMsg += L"\n";
 
 			if (g_threadsCount)
@@ -1520,7 +1529,7 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 		if (!digestList.empty())
 		{
 			// check that the current file is specified in the checksum file
-			It = digestList.find(szFilePath);
+				It = digestList.find(szFilePath);
 			if (It == digestList.end())
 			{
 				std::wstring szMsg = FormatString(_T("Error: file \"%s\" not found in checksum file.\n"), szFilePath);
@@ -2007,6 +2016,7 @@ typedef struct
 	bool bNoLogo;
 	bool bForceSumMode;
 	bool bUseThreads;
+	bool bSumRelativePath;
 } ConfigParams;
 
 void LoadDefaults(ConfigParams& iniParams)
@@ -2024,6 +2034,7 @@ void LoadDefaults(ConfigParams& iniParams)
 	iniParams.bNoLogo = false;
 	iniParams.bForceSumMode = false;
 	iniParams.bUseThreads = false;
+	iniParams.bSumRelativePath = false;
 
 	// get values from DirHash.ini fille if it exists
 	WCHAR szInitPath[1024];
@@ -2137,6 +2148,14 @@ void LoadDefaults(ConfigParams& iniParams)
 					iniParams.bUseThreads = true;
 				else
 					iniParams.bUseThreads = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"SumRelativePath", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					iniParams.bSumRelativePath = true;
+				else
+					iniParams.bSumRelativePath = false;
 			}
 		}
 	}
@@ -2349,6 +2368,15 @@ bool ParseSumFile(const wchar_t* sumFile, map<wstring, HashResultEntry>& digestL
 							wstring entryName = ptr;
 							// replace '/' by '\' for compatibility with checksum format on *nix platforms
 							std::replace(entryName.begin(), entryName.end(), L'/', L'\\');
+
+							// check that entreName starts by the input directory value. Otherwise add it.
+							if (	(entryName.length() < g_inputDirPathLength)
+								||	(_wcsicmp(g_inputDirPath.c_str(), entryName.substr(0, g_inputDirPathLength).c_str()))
+								)
+							{
+								entryName = g_inputDirPath + entryName;
+							}
+
 							digestLen = digest.size();
 							digestList[entryName].m_digest = digest;
 							bFailed = false;
@@ -2534,6 +2562,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	g_bNoLogo = iniParams.bNoLogo;
 	bForceSumMode =  iniParams.bForceSumMode;
 	bUseThreads = iniParams.bUseThreads;
+	g_bSumRelativePath = iniParams.bSumRelativePath;
 
 	if (_tcscmp(argv[1], _T("-benchmark")) == 0)
 		bBenchmarkOp = true;
@@ -2722,6 +2751,10 @@ int _tmain(int argc, _TCHAR* argv[])
 			{
 				bUseThreads = true;
 			}
+			else if (_tcsicmp(argv[i], _T("-sumRelativePath")) == 0)
+			{
+				g_bSumRelativePath = true;
+			}
 			else
 			{
 				if (outputFile) fclose(outputFile);
@@ -2804,6 +2837,25 @@ int _tmain(int argc, _TCHAR* argv[])
 		fflush(stdout);
 	}
 
+	inputArg = argv[1];
+	std::replace(inputArg.begin(), inputArg.end(), L'/', L'\\');
+
+	if (GetPathType(argv[1], bIsFile) && !bIsFile)
+	{
+		// remove any trailing backslash to harmonize directory names in case they are included
+		// in hash computations
+		size_t inputArgLen = wcslen(inputArg.c_str());
+		if (inputArg[inputArgLen - 1] == L'\\')
+			inputArg.erase(inputArgLen - 1, 1);
+
+		if (bSumMode || bVerifyMode)
+		{
+			// we store the input directory when -sum or -verify are specified
+			g_inputDirPath = inputArg + L"\\";
+			g_inputDirPathLength = wcslen(g_inputDirPath.c_str());
+		}
+	}
+
 	if (bVerifyMode)
 	{
 
@@ -2868,19 +2920,10 @@ int _tmain(int argc, _TCHAR* argv[])
 			StartThreads(!bQuiet || outputFile);
 	}
 
-	inputArg = argv[1];
-
-	if (GetPathType(inputArg.c_str(), bIsFile) && !bIsFile)
+	if (!bIsFile)
 	{
-		// remove any trailing backslash to harmonize directory names in case they are included
-		// in hash computations
-		size_t inputArgLen = wcslen(inputArg.c_str());
-		if (inputArg[inputArgLen - 1] == L'\\' || inputArg[inputArgLen - 1] == L'/')
-			inputArg.erase(inputArgLen - 1, 1);
-
 		CPath dirPath(inputArg.c_str());
 		dwError = HashDirectory(dirPath, pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
-
 	}
 	else
 	{
@@ -2888,6 +2931,8 @@ int _tmain(int argc, _TCHAR* argv[])
 		dwError = NO_ERROR;
 		if (bSumMode)
 		{
+			// if input is a file, -sumRelativePath is irrelevant
+			g_bSumRelativePath = false;
 			if (!digestsList.empty())
 			{
 				// verification

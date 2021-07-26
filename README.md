@@ -12,7 +12,7 @@ Home page: https://idrassi.github.io/DirHash/
 Usage
 ------------
 
-DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-verify FileName] [threads] [-clip] [-lowercase] [-overwrite] [-quiet] [-nologo] [-nowait] [-skipError] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] 
+DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-sumRelativePath] [-verify FileName] [threads] [-clip] [-lowercase] [-overwrite] [-quiet] [-nologo] [-nowait] [-skipError] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] 
 
 DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-clip] [-overwrite] [-quiet] [-nologo] [-nowait]
 
@@ -36,6 +36,8 @@ if `-benchmark` is specified, program will perform speed benchmark of the select
 if `-mscrypto` specified, program will use Windows native implementation of hash algorithms (This is always enabled on Windows ARM platforms since OpenSSL is too slow on them).
 
 if `-sum` is specified, program will output the hash of every file processed in a format similar to shasum.
+
+if `-sumRelativePath` is specified (only when -sum is specified), the file paths are stored in the output file as relative to the input directory.
 
 if `-verify` is specified, program will verify the hash against value(s) present on the specified file. The argument to this switch must be either a checksum file or a result file.
 
@@ -64,13 +66,14 @@ If `-skipError` is specified, ignore any encountered errors and continue process
 If `-nologo` is specified, don't display the copyright message and version number on startup.
 
 DirHash can also be configured using a configuration file called DirHash.ini and which must be on the same folder as DirHash.exe.
-When `Sum=True` is specified in DirHash.ini, it will have an effect only if "-verify" is not specified in the command line.
+When `Sum=True` is specified in DirHash.ini, it will have an effect only if `-verify` is not specified in the command line.
 An example of DirHash.ini is shown below:
 
 ```
 [Defaults]
 Hash=Blake3
 Sum=True
+SumRelativePath=True
 Threads=True
 Quiet=False
 Nologo=True
