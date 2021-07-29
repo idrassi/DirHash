@@ -249,22 +249,6 @@ std::wstring FormatString(LPCTSTR fmt, ...)
 	return ret;
 }
 
-void ReplaceAll(std::wstring& str, const std::wstring& from, const std::wstring& to) {
-	if (from.length())
-	{
-		size_t start_pos = 0;
-		while ((start_pos = str.find(from, start_pos)) != std::wstring::npos) {
-			str.replace(start_pos, from.length(), to);
-			start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
-		}
-	}
-}
-
-void SanitizeString(std::wstring& str)
-{
-	ReplaceAll(str, L"%", L"%%");
-}
-
 void ShowMessage(WORD attributes, LPCTSTR szMsg, va_list args)
 {
 	SetConsoleTextAttribute(g_hConsole, attributes);
@@ -275,7 +259,7 @@ void ShowMessage(WORD attributes, LPCTSTR szMsg, va_list args)
 void ShowMessageDirect(WORD attributes, LPCTSTR szMsg)
 {	
 	SetConsoleTextAttribute(g_hConsole, attributes);
-	_tprintf(szMsg);
+	_tprintf(L"%s", szMsg);
 	SetConsoleTextAttribute(g_hConsole, g_wCurrentAttributes);
 }
 
@@ -1297,7 +1281,6 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 				g_bMismatchFound = true;
 
 				std::wstring szMsg = FormatString(L"Hash value mismatch for \"%s\"\n", szFilePath);
-				SanitizeString(szMsg);
 
 				if (g_threadsCount)
 				{
@@ -1309,7 +1292,7 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 				else
 				{
 					if (!bQuiet) ShowWarningDirect(szMsg.c_str());
-					if (outputFile) _ftprintf(outputFile, szMsg.c_str());
+					if (outputFile) _ftprintf(outputFile, L"%s", szMsg.c_str());
 				}				
 			}
 		}
@@ -1329,7 +1312,6 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 			else
 				szMsg += szFilePath;
 			szMsg += L"\n";
-			SanitizeString(szMsg);
 
 			if (g_threadsCount)
 			{
@@ -1341,7 +1323,7 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 			else
 			{
 				if (!bQuiet) ShowWarningDirect(szMsg.c_str());
-				if (outputFile) _ftprintf(outputFile, szMsg.c_str());
+				if (outputFile) _ftprintf(outputFile, L"%s", szMsg.c_str());
 			}
 		}
 	}
@@ -1361,7 +1343,6 @@ DWORD WINAPI OutputThreadCode(LPVOID pArg)
 		while (!g_bFatalError && (pOutput = (OUTPUT_ITEM*)InterlockedPopEntrySList(g_outputsList)))
 		{
 			p = pOutput->pParam;
-			SanitizeString(*p);
 			if (!pOutput->bQuiet)
 			{
 				if (pOutput->bError)
@@ -1369,7 +1350,7 @@ DWORD WINAPI OutputThreadCode(LPVOID pArg)
 				else
 					ShowWarningDirect(p->c_str());
 			}
-			if (!pOutput->bSkipOutputFile) if (outputFile) _ftprintf(outputFile, p->c_str());
+			if (!pOutput->bSkipOutputFile) if (outputFile) _ftprintf(outputFile, L"%s", p->c_str());
 			delete p;
 			_aligned_free(pOutput);
 		}
@@ -1572,9 +1553,8 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 			if (It == digestList.end())
 			{
 				std::wstring szMsg = FormatString(_T("Error: file \"%s\" not found in checksum file.\n"), szFilePath);
-				SanitizeString(szMsg);
 				
-				if (outputFile) _ftprintf(outputFile, szMsg.c_str());
+				if (outputFile) _ftprintf(outputFile, L"%s", szMsg.c_str());
 				if (g_bSkipError)
 				{					
 					if (!bQuiet)
@@ -1666,8 +1646,7 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 	else
 	{
 		std::wstring szMsg = FormatString (_T("Failed to open file \"%s\" for reading (error 0x%.8X)\n"), szFilePath, GetLastError());
-		SanitizeString(szMsg);
-		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, szMsg.c_str());
+		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, L"%s", szMsg.c_str());
 		if (g_bSkipError)
 		{
 			if (!bQuiet)
@@ -1720,8 +1699,7 @@ DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool 
 	{
 		dwError = GetLastError();
 		std::wstring szMsg = FormatString (_T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);	
-		SanitizeString(szMsg);
-		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, szMsg.c_str());
+		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, L"%s", szMsg.c_str());
 		if (g_bSkipError)
 		{
 			if (!bQuiet)
@@ -1785,10 +1763,9 @@ DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool 
 	if (dwError != ERROR_NO_MORE_FILES)
 	{
 		std::wstring szMsg = FormatString (TEXT("FindNextFile failed while listing \"%s\". \n Error 0x%.8X.\n"), szDirPath, dwError);
-		SanitizeString(szMsg);
 		FindClose(hFind);
 		
-		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, szMsg.c_str());
+		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, L"%s", szMsg.c_str());
 		if (g_bSkipError)
 		{
 			if (!bQuiet)
