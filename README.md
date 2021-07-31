@@ -12,7 +12,7 @@ Home page: https://idrassi.github.io/DirHash/
 Usage
 ------------
 
-DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-sumRelativePath] [-verify FileName] [threads] [-clip] [-lowercase] [-overwrite] [-quiet] [-nologo] [-nowait] [-skipError] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] 
+DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-sumRelativePath] [-verify FileName] [threads] [-clip] [-lowercase] [-overwrite] [-quiet] [-nologo] [-nowait] [-skipError] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] [-nofollow]
 
 DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-clip] [-overwrite] [-quiet] [-nologo] [-nowait]
 
@@ -65,6 +65,8 @@ If `-skipError` is specified, ignore any encountered errors and continue process
 
 If `-nologo` is specified, don't display the copyright message and version number on startup.
 
+if `-nofollow` is specified, don't follow symbolic links, junction points or mount points, thus excluding them from hash computation.
+
 DirHash can also be configured using a configuration file called DirHash.ini and which must be on the same folder as DirHash.exe.
 When `Sum=True` is specified in DirHash.ini, it will have an effect only if `-verify` is not specified in the command line.
 An example of DirHash.ini is shown below:
@@ -84,5 +86,6 @@ hashnames=False
 stripnames=False
 lowercase=False
 MSCrypto=False
+NoFollow=False
 ```
 
