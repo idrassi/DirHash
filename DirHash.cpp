@@ -105,6 +105,7 @@ static bool g_bUseMsCrypto = false;
 static bool g_bMismatchFound = false;
 static bool g_bSkipError = false;
 static bool g_bNoLogo = false;
+static bool g_bNoFollow = false;
 static HANDLE g_hThreads[256];
 static WORD ThreadProcessorGroups[256] = { 0 };
 static DWORD g_threadsCount = 0;
@@ -450,6 +451,75 @@ wstring EnsureAbsolut(LPCWSTR szPath)
 	}
 
 	return strVal;
+}
+
+/* code to detect Symbolic Links, Junction Points and Mount Points from 
+ * http://blog.kalmbach-software.de/2008/02/
+ * 
+ * 
+ */
+
+
+typedef struct _REPARSE_DATA_BUFFER {
+	ULONG  ReparseTag;
+	USHORT  ReparseDataLength;
+	USHORT  Reserved;
+	union {
+		struct {
+			USHORT  SubstituteNameOffset;
+			USHORT  SubstituteNameLength;
+			USHORT  PrintNameOffset;
+			USHORT  PrintNameLength;
+			ULONG   Flags; // it seems that the docu is missing this entry (at least 2008-03-07)
+			WCHAR  PathBuffer[1];
+		} SymbolicLinkReparseBuffer;
+		struct {
+			USHORT  SubstituteNameOffset;
+			USHORT  SubstituteNameLength;
+			USHORT  PrintNameOffset;
+			USHORT  PrintNameLength;
+			WCHAR  PathBuffer[1];
+		} MountPointReparseBuffer;
+		struct {
+			UCHAR  DataBuffer[1];
+		} GenericReparseBuffer;
+	};
+} REPARSE_DATA_BUFFER, * PREPARSE_DATA_BUFFER;
+
+bool IsReparsePoint(LPCTSTR szPath)
+{
+	bool bRet = false;
+	HANDLE hFile;
+
+	hFile = CreateFile(szPath, FILE_READ_EA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+	if (hFile != INVALID_HANDLE_VALUE)
+	{
+		// Allocate the reparse data structure
+		DWORD dwBufSize = MAXIMUM_REPARSE_DATA_BUFFER_SIZE;
+		REPARSE_DATA_BUFFER* rdata = (REPARSE_DATA_BUFFER*) new BYTE[dwBufSize];
+
+		// Query the reparse data
+		DWORD dwRetLen;
+		if (DeviceIoControl(hFile, FSCTL_GET_REPARSE_POINT, NULL, 0, rdata, dwBufSize, &dwRetLen, NULL))
+		{
+			if (IsReparseTagMicrosoft(rdata->ReparseTag))
+			{
+				if (rdata->ReparseTag == IO_REPARSE_TAG_SYMLINK)
+				{
+					bRet = true;
+				}
+				else if (rdata->ReparseTag == IO_REPARSE_TAG_MOUNT_POINT) // this applies also for Junction Point
+				{
+					bRet = true;
+				}
+			}
+		}
+		CloseHandle(hFile);
+
+
+		delete[](BYTE*) rdata;
+	}
+	return bRet;
 }
 
 class CPath
@@ -1726,35 +1796,42 @@ DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool 
 		{
 			// Skip "." and ".." directories
 			if ((_tcscmp(ffd.cFileName, _T(".")) != 0) && (_tcscmp(ffd.cFileName, _T("..")) != 0))
-				dirContent.push_back(CDirContent(dirPath, ffd.cFileName, true));
+			{
+				CDirContent entry(dirPath, ffd.cFileName, true);
+				if (!g_bNoFollow || !IsReparsePoint(entry.GetPath().GetAbsolutPathValue().c_str()))
+					dirContent.push_back(entry);
+			}
 		}
 		else
 		{
 			CDirContent entry(dirPath, ffd.cFileName, false);
-			// skip file holding checksum
-			if (bSumMode && !g_sumFileSkipped)
+			if (!g_bNoFollow || !IsReparsePoint(entry.GetPath().GetAbsolutPathValue().c_str()))
 			{
-				if (!digestList.empty())
+				// skip file holding checksum
+				if (bSumMode && !g_sumFileSkipped)
 				{
-					// verification
-					if (0 == _wcsicmp(g_verificationFileName.GetAbsolutPathValue().c_str(), entry.GetPath().GetAbsolutPathValue().c_str()))
+					if (!digestList.empty())
 					{
-						g_sumFileSkipped = true;
-						continue;
+						// verification
+						if (0 == _wcsicmp(g_verificationFileName.GetAbsolutPathValue().c_str(), entry.GetPath().GetAbsolutPathValue().c_str()))
+						{
+							g_sumFileSkipped = true;
+							continue;
+						}
+					}
+					else
+					{
+						if (g_outputFileName.GetAbsolutPathValue().empty())
+							g_sumFileSkipped = true;
+						else if (0 == _wcsicmp(g_outputFileName.GetAbsolutPathValue().c_str(), entry.GetPath().GetAbsolutPathValue().c_str()))
+						{
+							g_sumFileSkipped = true;
+							continue;
+						}
 					}
 				}
-				else
-				{
-					if (g_outputFileName.GetAbsolutPathValue().empty())
-						g_sumFileSkipped = true;
-					else if  (0 == _wcsicmp(g_outputFileName.GetAbsolutPathValue().c_str(), entry.GetPath().GetAbsolutPathValue().c_str()))
-					{
-						g_sumFileSkipped = true;
-						continue;
-					}
-				}
+				dirContent.push_back(entry);
 			}
-			dirContent.push_back(entry);
 		}
 	}
 	while (FindNextFile(hFind, &ffd) != 0);
@@ -1869,7 +1946,7 @@ void ShowUsage()
 {
 	ShowLogo();
 	_tprintf(TEXT("Usage: \n")
-		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-stripnames] [-skipError] [-nologo] [-exclude pattern1] [-exclude pattern2]\n")
+		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-stripnames] [-skipError] [-nologo] [-nofollow] [-exclude pattern1] [-exclude pattern2]\n")
 		TEXT("  DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait] [-nologo]\n")
 		TEXT("\n")
 		TEXT("  Possible values for HashAlgo (not case sensitive, default is Blake3):\n"));
@@ -1882,6 +1959,7 @@ void ShowUsage()
 		TEXT("  -benchmark: perform speed benchmark of the selected algorithm. If \"All\" is specified, then all algorithms are benchmarked.\n")
 		TEXT("  -mscrypto: use Windows native implementation of hash algorithms (Always enabled on ARM).\n")
 		TEXT("  -sum: output hash of every file processed in a format similar to shasum.\n")
+		TEXT("  -sumRelativePath (only when -sum is specified): the file paths are stored in the output file as relative to the input directory.\n")
 		TEXT("  -verify: verify hash against value(s) present on the specified file.\n")
 		TEXT("           argument must be either a checksum file or a result file.\n")
 		TEXT("  -threads (only when -sum or -verify specified): multithreading will be used to accelerate hashing of files.\n")
@@ -1896,6 +1974,7 @@ void ShowUsage()
 		TEXT("  -exclude: specifies a name pattern for files to exclude from hash computation.\n")
 		TEXT("  -skipError: ignore any encountered errors and continue processing.\n")
 		TEXT("  -nologo: don't display the copyright message and version number on startup.\n")
+		TEXT("  -nofollow: don't follow symbolic links, Junction points and mount points, excluding them from hash computation.\n")
 	);
 	_tprintf(_T("\n"));
 }
@@ -2035,6 +2114,7 @@ typedef struct
 	bool bUseMsCrypto;
 	bool bSkipError;
 	bool bNoLogo;
+	bool bNoFollow;
 	bool bForceSumMode;
 	bool bUseThreads;
 	bool bSumRelativePath;
@@ -2053,6 +2133,7 @@ void LoadDefaults(ConfigParams& iniParams)
 	iniParams.bLowerCase = false;
 	iniParams.bSkipError = false;
 	iniParams.bNoLogo = false;
+	iniParams.bNoFollow = false;
 	iniParams.bForceSumMode = false;
 	iniParams.bUseThreads = false;
 	iniParams.bSumRelativePath = false;
@@ -2153,6 +2234,14 @@ void LoadDefaults(ConfigParams& iniParams)
 					iniParams.bNoLogo = true;
 				else
 					iniParams.bNoLogo = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"NoFollow", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					iniParams.bNoFollow = true;
+				else
+					iniParams.bNoFollow = false;
 			}
 
 			if (GetPrivateProfileStringW(L"Defaults", L"Sum", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
@@ -2581,6 +2670,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	g_bUseMsCrypto = iniParams.bUseMsCrypto;
 	g_bSkipError = iniParams.bSkipError;
 	g_bNoLogo = iniParams.bNoLogo;
+	g_bNoFollow = iniParams.bNoFollow;
 	bForceSumMode =  iniParams.bForceSumMode;
 	bUseThreads = iniParams.bUseThreads;
 	g_bSumRelativePath = iniParams.bSumRelativePath;
@@ -2760,6 +2850,10 @@ int _tmain(int argc, _TCHAR* argv[])
 			{
 				g_bNoLogo = true;
 			}
+			else if (_tcsicmp(argv[i], _T("-nofollow")) == 0)
+			{
+				g_bNoFollow = true;
+			}
 			else if (Hash::IsHashId(argv[i]))
 			{
 				hashAlgoToUse = argv[i];
@@ -2842,6 +2936,16 @@ int _tmain(int argc, _TCHAR* argv[])
 			ShowError(TEXT("Error: The given input file doesn't exist\n"));
 		WaitForExit(bDontWait);
 		return (-2);
+	}
+
+	if (g_bNoFollow && IsReparsePoint(argv[1]))
+	{
+		if (outputFile) fclose(outputFile);
+		delete pHash;
+		if (!bQuiet)
+			ShowError(TEXT("Error: -nofollow specified but the given input file or directoty is Symbolic Link, Junction Point or Mount Point.\n"));
+		WaitForExit(bDontWait);
+		return (-9);
 	}
 
 	// in case "-verify" was not specified, set SUM mode if it was specied in DirHash.ini
