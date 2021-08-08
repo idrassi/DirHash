@@ -123,6 +123,7 @@ static bool g_sumFileSkipped = false;
 static bool g_bSumRelativePath = false;
 static wstring g_inputDirPath;
 static size_t g_inputDirPathLength = 0;
+static bool g_bLongPathNamesEnabled = false;
 
 
 typedef BOOL(WINAPI* SetThreadGroupAffinityFn)(
@@ -384,10 +385,9 @@ wstring EnsureAbsolut(LPCWSTR szPath)
 {
 	wstring strVal = szPath;
 	size_t pathLen = wcslen(szPath);
-	WCHAR g_szCanonalizedName[MAX_PATH + 1];
 	if (pathLen)
 	{
-		std::replace(strVal.begin(), strVal.end(), L'/', L'\\');
+		WCHAR g_szCanonalizedName[MAX_PATH + 1];
 		if (IsAbsolutPath(strVal.c_str()))
 		{
 			if (pathLen > MAX_PATH)
@@ -447,6 +447,20 @@ wstring EnsureAbsolut(LPCWSTR szPath)
 				else
 					strVal = szParent + strVal;
 			}
+		}
+
+		if (!g_bLongPathNamesEnabled)
+		{
+			// on old Windows versions, use \\?\ prefix to increase the path limit to 32767 characters
+			std::wstring res = L"\\\\?\\";
+			//detect UNC
+			if (strVal[0] == L'\\' && strVal[1] == L'\\')
+			{
+				res += L"UNC\\";
+				strVal = res + (strVal.c_str() + 2);
+			}
+			else
+				strVal = res + strVal;
 		}
 	}
 
@@ -535,7 +549,8 @@ public:
 
 	explicit CPath(LPCWSTR szPath) : m_path(szPath)
 	{
-		m_absolutPath = EnsureAbsolut(szPath);
+		std::replace(m_path.begin(), m_path.end(), L'/', L'\\');
+		m_absolutPath = EnsureAbsolut(m_path.c_str());
 	}
 
 	CPath(LPCWSTR szPath, LPCWSTR szAbsolutPath) : m_path(szPath), m_absolutPath(szPath)
@@ -558,7 +573,8 @@ public:
 	CPath& operator = (LPCWSTR p)
 	{
 		m_path = p;
-		m_absolutPath = EnsureAbsolut(p);
+		std::replace(m_path.begin(), m_path.end(), L'/', L'\\');
+		m_absolutPath = EnsureAbsolut(m_path.c_str());
 		return *this;
 	}
 
@@ -1691,7 +1707,7 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 			LocalFree(pCanonicalName);
 	}
 
-	f = CreateFileW(szFilePath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+	f = CreateFileW(filePath.GetAbsolutPathValue().c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (f != INVALID_HANDLE_VALUE)
 	{
 		if (!GetFileSizeEx(f, &fileSize))
@@ -1746,7 +1762,7 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 
 DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
 {
-	wstring szDir;
+	wstring szDir = dirPath.GetAbsolutPathValue();
 	WIN32_FIND_DATA ffd;
 	HANDLE hFind = INVALID_HANDLE_VALUE;
 	DWORD dwError = 0;
@@ -1758,7 +1774,6 @@ DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool 
 		return 0;
 
 
-	szDir += szDirPath;
 	szDir += _T("\\*");
 
 	// Find the first file in the directory.
@@ -2355,11 +2370,11 @@ bool ParseResultLine(wchar_t* szLine, wstring& targetName, wstring& hashName, By
 	return bRet;
 }
 
-bool ParseResultFile(const wchar_t* resultFile, map<wstring, HashResultEntry>& pathDigestList, map<int, ByteArray>& rawDigestList)
+bool ParseResultFile(const CPath& resultFile, map<wstring, HashResultEntry>& pathDigestList, map<int, ByteArray>& rawDigestList)
 {
 	bool bRet = false;
 	// Result files are created using UTF-8 encoding in order to support UNICODE file names
-	FILE* f = _wfopen(resultFile, L"rt,ccs=UTF-8");
+	FILE* f = _wfopen(resultFile.GetAbsolutPathValue().c_str(), L"rt,ccs=UTF-8");
 	if (f)
 	{
 		bool bFailed = false;
@@ -2415,17 +2430,17 @@ bool ParseResultFile(const wchar_t* resultFile, map<wstring, HashResultEntry>& p
 	}
 	else
 	{
-		_tprintf(TEXT("Failed to open file \"%s\" for reading\n"), resultFile);
+		_tprintf(TEXT("Failed to open file \"%s\" for reading\n"), resultFile.GetPathValue().c_str());
 	}
 
 	return bRet;
 }
 
-bool ParseSumFile(const wchar_t* sumFile, map<wstring, HashResultEntry>& digestList, vector<int>& skippedLines)
+bool ParseSumFile(const CPath& sumFile, map<wstring, HashResultEntry>& digestList, vector<int>& skippedLines)
 {
 	bool bRet = false;	
 	// SUM files are created using UTF-8 encoding in order to support UNICODE file names
-	FILE* f = _wfopen(sumFile, L"rt,ccs=UTF-8");
+	FILE* f = _wfopen(sumFile.GetAbsolutPathValue().c_str(), L"rt,ccs=UTF-8");
 	if (f)
 	{
 		bool bFailed = false;
@@ -2520,7 +2535,7 @@ bool ParseSumFile(const wchar_t* sumFile, map<wstring, HashResultEntry>& digestL
 	}
 	else
 	{
-		_tprintf(TEXT("Failed to open file \"%s\" for reading\n"), sumFile);
+	_tprintf(TEXT("Failed to open file \"%s\" for reading\n"), sumFile.GetPathValue().c_str());
 	}
 
 	return bRet;
@@ -2562,25 +2577,14 @@ bool GetPathType(LPCWSTR szPath, bool& bIsFile)
 	struct _stat64 buf;
 	std::wstring drivePath;
 	bIsFile = false;
-	if (wcslen(szPath) == 2 && szPath[1] == L':')
-	{
-		drivePath = szPath;
-		drivePath += L"\\";
-		szPath = drivePath.c_str();
-	}
+
 	if ((0 == _wstat64(szPath, &buf)) && (buf.st_mode & (_S_IFDIR | _S_IFREG)))
 	{
-		bIsFile = (buf.st_mode & _S_IFREG)? true : false;
+		bIsFile = (buf.st_mode & _S_IFREG) ? true : false;
 		return true;
 	}
 	else
 		return false;
-}
-
-BOOL IsPathValid(LPCWSTR szPath)
-{
-	bool bDummy;
-	return GetPathType(szPath, bDummy);
 }
 
 wstring GetCurDir()
@@ -2595,6 +2599,27 @@ wstring GetCurDir()
 	ret += L"\\";
 	delete[] wszCurDir;
 	return ret;
+}
+
+bool IsWindowsLongPathNamesEnabled()
+{
+	// Registry key HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled (Type: REG_DWORD) 
+	// must exist and be set to 1.
+	bool bRet = false;
+	HKEY hKey;
+	LSTATUS lRet = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\FileSystem", 0, KEY_READ, &hKey);
+	if (ERROR_SUCCESS == lRet)
+	{
+		DWORD dwType, dwValue, cbLen = sizeof(DWORD);
+		lRet = RegQueryValueExW(hKey, L"LongPathsEnabled", NULL, &dwType, (LPBYTE) &dwValue, &cbLen);
+		if (ERROR_SUCCESS == lRet)
+		{
+			bRet = (dwValue == 1);
+		}
+		RegCloseKey(hKey);
+	}
+	return bRet;
+
 }
 
 int _tmain(int argc, _TCHAR* argv[])
@@ -2626,12 +2651,19 @@ int _tmain(int argc, _TCHAR* argv[])
 	OSVERSIONINFOW versionInfo;
 	wstring inputArg;
 	ConfigParams iniParams;
+	CPath inputPath;
 
 	if (GetWindowsVersion(&versionInfo) && (versionInfo.dwMajorVersion >= 10))
 	{
 		PathAllocCanonicalizePtr = (PathAllocCanonicalizeFn)GetProcAddress(GetModuleHandle(L"KernelBase.dll"), "PathAllocCanonicalize");
 		PathAllocCombinePtr = (PathAllocCombineFn)GetProcAddress(GetModuleHandle(L"KernelBase.dll"), "PathAllocCombine");
 		PathCchSkipRootPtr = (PathCchSkipRootFn)GetProcAddress(GetModuleHandle(L"KernelBase.dll"), "PathCchSkipRoot");
+
+		// Long path names support is available starting from Windows 10 version 1607 (Build 14393)
+		if (versionInfo.dwBuildNumber >= 14393)
+		{
+			g_bLongPathNamesEnabled = IsWindowsLongPathNamesEnabled();
+		}
 	}
 
 	g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -2899,7 +2931,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	if (!g_outputFileName.GetPathValue().empty())
 	{
-		outputFile = _tfopen(g_outputFileName.GetPathValue().c_str(), bOverwrite ? _T("wt,ccs=UTF-8") : _T("a+t,ccs=UTF-8"));
+		outputFile = _tfopen(g_outputFileName.GetAbsolutPathValue().c_str(), bOverwrite ? _T("wt,ccs=UTF-8") : _T("a+t,ccs=UTF-8"));
 		if (!outputFile)
 		{
 			if (!bQuiet)
@@ -2928,7 +2960,16 @@ int _tmain(int argc, _TCHAR* argv[])
 		return dwError;
 	}
 
-	if (!IsPathValid (argv[1]))
+	inputArg = argv[1];
+	std::replace(inputArg.begin(), inputArg.end(), L'/', L'\\');
+	// remove any trailing backslash to harmonize directory names in case they are included
+	// in hash computations
+	size_t inputArgLen = wcslen(inputArg.c_str());
+	if (inputArg[inputArgLen - 1] == L'\\')
+		inputArg.erase(inputArgLen - 1, 1);
+	inputPath = inputArg.c_str();
+
+	if (!GetPathType(inputPath.GetAbsolutPathValue().c_str(), bIsFile))
 	{
 		if (outputFile) fclose(outputFile);
 		delete pHash;
@@ -2962,16 +3003,8 @@ int _tmain(int argc, _TCHAR* argv[])
 		fflush(stdout);
 	}
 
-	inputArg = argv[1];
-	std::replace(inputArg.begin(), inputArg.end(), L'/', L'\\');
-
-	if (GetPathType(argv[1], bIsFile) && !bIsFile)
+	if (!bIsFile)
 	{
-		// remove any trailing backslash to harmonize directory names in case they are included
-		// in hash computations
-		size_t inputArgLen = wcslen(inputArg.c_str());
-		if (inputArg[inputArgLen - 1] == L'\\')
-			inputArg.erase(inputArgLen - 1, 1);
 
 		if (bSumMode || bVerifyMode)
 		{
@@ -2984,7 +3017,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	if (bVerifyMode)
 	{
 
-		if (ParseSumFile(g_verificationFileName.GetPathValue().c_str(), digestsList, skippedLines))
+		if (ParseSumFile(g_verificationFileName, digestsList, skippedLines))
 		{
 			// check that hash length used in the checksum file is the same as the one specified by the user
 			int sumFileHashLen = (int)digestsList.begin()->second.m_digest.size();
@@ -2997,7 +3030,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			}
 			bSumMode = true;
 		}
-		else if (ParseResultFile(g_verificationFileName.GetPathValue().c_str(), digestsList, rawDigestsList))
+		else if (ParseResultFile(g_verificationFileName, digestsList, rawDigestsList))
 		{
 			// 
 			std::wstring entryName = GetFileName(argv[1]);
