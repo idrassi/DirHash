@@ -2287,7 +2287,7 @@ void LoadDefaults(ConfigParams& iniParams)
 
 #if defined (_M_ARM64) || defined (_M_ARM)
 	// we always use Windows native crypto on ARM platform because OpenSSL is not optimized for such platforms
-	g_bUseMsCrypto = true;
+	iniParams.bUseMsCrypto = true;
 #endif
 }
 
