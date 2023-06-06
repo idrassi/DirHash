@@ -2943,7 +2943,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		{
 			// add a new Line to the file to avoid issues with existing content
 			__int64 fileLength = _filelengthi64(_fileno(outputFile));
-			if (fileLength > 0)
+			if (fileLength > 3) // ignore UTF-8 BOM bytes which are always written by fopen when "ccs=UTF-8" specified
 				_ftprintf(outputFile, L"\n");
 		}
 	}
