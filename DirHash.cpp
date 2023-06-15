@@ -608,7 +608,7 @@ public:
 		m_originalCP = GetConsoleOutputCP();
 		
 		SetConsoleOutputCP(CP_UTF8);
-		_setmode(_fileno(stdout), _O_U16TEXT);
+		_setmode(_fileno(stdout), _O_U8TEXT);
 	}
 
 	~CConsoleUnicodeOutputInitializer()
