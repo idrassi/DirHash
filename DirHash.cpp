@@ -1,9 +1,9 @@
 /*
 * An implementation of directory hashing that uses lexicographical order on name
-* for sorting. Based on OpenSSL for hash algorithms in order to support all versions
-* of Windows from 2000 to 7 without relying on the presence of any specific CSP.
+* for sorting. Based on OpenSSL and Microsoft CNG for hash algorithms for maximum
+* performance and compatibility.
 *
-* Copyright (c) 2010-2018 Mounir IDRASSI <mounir.idrassi@idrix.fr>. All rights reserved.
+* Copyright (c) 2010-2023 Mounir IDRASSI <mounir.idrassi@idrix.fr>. All rights reserved.
 *
 * This program is distributed in the hope that it will be useful,
 * but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
@@ -1947,7 +1947,7 @@ void ShowLogo()
 		return;
 
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-	_tprintf(_T("\nDirHash ") _T(DIRHASH_VERSION) _T(" by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2021\n\n"));
+	_tprintf(_T("\nDirHash ") _T(DIRHASH_VERSION) _T(" by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2023\n\n"));
 	_tprintf(_T("Recursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\n"));
 	_tprintf(_T("Supported Algorithms :\n"));
 	std::vector<std::wstring> algos = Hash::GetSupportedHashIds();
@@ -2688,7 +2688,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	setbuf(stdout, NULL);
 
-	SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2021"));
+	SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2023"));
 
 	SetConsoleCtrlHandler(CtrlHandler, TRUE);
 
