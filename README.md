@@ -78,6 +78,7 @@ An example of DirHash.ini is shown below:
 Hash=Blake3
 Sum=True
 SumRelativePath=True
+IncludeLastDir=False
 Threads=True
 Quiet=False
 Nologo=True

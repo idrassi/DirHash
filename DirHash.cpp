@@ -2135,6 +2135,7 @@ typedef struct
 	bool bForceSumMode;
 	bool bUseThreads;
 	bool bSumRelativePath;
+	bool bIncludeLastDir;
 } ConfigParams;
 
 void LoadDefaults(ConfigParams& iniParams)
@@ -2154,6 +2155,7 @@ void LoadDefaults(ConfigParams& iniParams)
 	iniParams.bForceSumMode = false;
 	iniParams.bUseThreads = false;
 	iniParams.bSumRelativePath = false;
+	iniParams.bIncludeLastDir = false;
 
 	// get values from DirHash.ini fille if it exists
 	WCHAR szInitPath[1024];
@@ -2283,6 +2285,14 @@ void LoadDefaults(ConfigParams& iniParams)
 					iniParams.bSumRelativePath = true;
 				else
 					iniParams.bSumRelativePath = false;
+			}
+
+			if (GetPrivateProfileStringW(L"Defaults", L"IncludeLastDir", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") != 0)
+					iniParams.bIncludeLastDir = false;
+				else
+					iniParams.bIncludeLastDir = true;
 			}
 		}
 	}
@@ -2708,6 +2718,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	bForceSumMode =  iniParams.bForceSumMode;
 	bUseThreads = iniParams.bUseThreads;
 	g_bSumRelativePath = iniParams.bSumRelativePath;
+	g_bIncludeLastDir = iniParams.bIncludeLastDir;
 
 	if (_tcscmp(argv[1], _T("-benchmark")) == 0)
 		bBenchmarkOp = true;
