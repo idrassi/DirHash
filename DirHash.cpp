@@ -121,6 +121,7 @@ static std::wstring g_szLastErrorMsg;
 static wstring g_currentDirectory;
 static bool g_sumFileSkipped = false;
 static bool g_bSumRelativePath = false;
+static bool g_bIncludeLastDir = false;
 static wstring g_inputDirPath;
 static size_t g_inputDirPathLength = 0;
 static bool g_bLongPathNamesEnabled = false;
@@ -1961,7 +1962,7 @@ void ShowUsage()
 {
 	ShowLogo();
 	_tprintf(TEXT("Usage: \n")
-		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-stripnames] [-skipError] [-nologo] [-nofollow] [-exclude pattern1] [-exclude pattern2]\n")
+		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-sumRelativePath] [-includeLastDir] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-stripnames] [-skipError] [-nologo] [-nofollow] [-exclude pattern1] [-exclude pattern2]\n")
 		TEXT("  DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait] [-nologo]\n")
 		TEXT("\n")
 		TEXT("  Possible values for HashAlgo (not case sensitive, default is Blake3):\n"));
@@ -1977,6 +1978,7 @@ void ShowUsage()
 		TEXT("  -sumRelativePath (only when -sum is specified): the file paths are stored in the output file as relative to the input directory.\n")
 		TEXT("  -verify: verify hash against value(s) present on the specified file.\n")
 		TEXT("           argument must be either a checksum file or a result file.\n")
+		TEXT("  -includeLastDir (only when -sum or -verify is specified): the last directory name of the input directory is included in the SUM file entries and used in the verification process. This switch implies -sumRelativePath.\n")
 		TEXT("  -threads (only when -sum or -verify specified): multithreading will be used to accelerate hashing of files.\n")
 		TEXT("  -clip: copy the result to Windows clipboard (ignored when -sum specified)\n")
 		TEXT("  -lowercase: output hash value(s) in lower case instead of upper case\n")
@@ -2495,8 +2497,8 @@ bool ParseSumFile(const CPath& sumFile, map<wstring, HashResultEntry>& digestLis
 							std::replace(entryName.begin(), entryName.end(), L'/', L'\\');
 
 							// check that entreName starts by the input directory value. Otherwise add it.
-							if (	(entryName.length() < g_inputDirPathLength)
-								||	(_wcsicmp(g_inputDirPath.c_str(), entryName.substr(0, g_inputDirPathLength).c_str()))
+							if ( g_inputDirPathLength && ((entryName.length() < g_inputDirPathLength)
+								||	(_wcsicmp(g_inputDirPath.c_str(), entryName.substr(0, g_inputDirPathLength).c_str())))
 								)
 							{
 								entryName = g_inputDirPath + entryName;
@@ -2902,6 +2904,11 @@ int _tmain(int argc, _TCHAR* argv[])
 			{
 				g_bSumRelativePath = true;
 			}
+			else if (_tcsicmp(argv[i], _T("-includeLastDir")) == 0)
+			{
+				g_bIncludeLastDir = true;
+				g_bSumRelativePath = true;
+			}
 			else
 			{
 				if (outputFile) fclose(outputFile);
@@ -3009,7 +3016,18 @@ int _tmain(int argc, _TCHAR* argv[])
 		if (bSumMode || bVerifyMode)
 		{
 			// we store the input directory when -sum or -verify are specified
-			g_inputDirPath = inputArg + L"\\";
+			g_inputDirPath = inputArg;
+			if (g_bIncludeLastDir)
+			{
+				// remove the last directory name so that it is present in the output
+				size_t pos = g_inputDirPath.find_last_of(L"\\");
+				if (pos != std::wstring::npos)
+					g_inputDirPath.erase(pos + 1);
+				else
+					g_inputDirPath.clear();
+			}
+			else
+				g_inputDirPath += L"\\";
 			g_inputDirPathLength = wcslen(g_inputDirPath.c_str());
 		}
 	}

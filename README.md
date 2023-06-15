@@ -12,7 +12,7 @@ Home page: https://idrassi.github.io/DirHash/
 Usage
 ------------
 
-DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-sumRelativePath] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite] [-quiet] [-nologo] [-nowait] [-skipError] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] [-nofollow]
+DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-sumRelativePath] [-includeLastDir] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite] [-quiet] [-nologo] [-nowait] [-skipError] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] [-nofollow]
 
 DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-clip] [-overwrite] [-quiet] [-nologo] [-nowait]
 
@@ -40,6 +40,8 @@ if `-sum` is specified, program will output the hash of every file processed in 
 if `-sumRelativePath` is specified (only when -sum is specified), the file paths are stored in the output file as relative to the input directory.
 
 if `-verify` is specified, program will verify the hash against value(s) present on the specified file. The argument to this switch must be either a checksum file or a result file.
+
+if `-includeLastDir` (only when -sum or -verify is specified), the last directory name of the input directory is included in the SUM file entries and used in the verification process. This switch implies `-sumRelativePath`.
 
 if `-threads` is specified (only when -sum or -verify specified), multithreading will be used to accelerate hashing of files.
 
