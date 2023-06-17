@@ -26,10 +26,15 @@ Possible values for HashAlgo (not case sensitive):
 - Blake2s
 - Blake2b
 - Blake3
+- Any combination of the above separated by comma, except when `-verify` is used
 
 If HashAlgo is not specified, Blake3 is used by default.
 
 ResultFileName specifies an optional text file where the result will be appended.
+
+For example, setting HashAlgo to `sha256,sha512` will use SHA256 and SHA512 for hashing the input file or directory and `sha256,sha512,blake2s` will use SHA256, SHA512 and Blake2s.
+If `-sum` is used with multiple hash algorithms, a SUM file will be generated for each hash algorithm and its file name will `ResultFileName` appended with the hash algorithm name.
+For example, if `-sum` is used with `sha256,sha512`, then two SUM files will be generated: `ResultFileName.sha256` and `ResultFileName.sha512`.
 
 if `-benchmark` is specified, program will perform speed benchmark of the selected hash algorithm
 

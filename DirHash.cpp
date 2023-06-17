@@ -92,6 +92,7 @@ using namespace std;
 
 typedef vector<unsigned char> ByteArray;
 
+class CFilePtr;
 
 static BYTE g_pbBuffer[4096];
 static TCHAR g_szCanonalizedName[MAX_PATH + 1];
@@ -99,7 +100,7 @@ static WORD  g_wAttributes = FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED
 static volatile WORD  g_wCurrentAttributes;
 static HANDLE g_hConsole = NULL;
 static CONSOLE_SCREEN_BUFFER_INFO g_originalConsoleInfo;
-static FILE* outputFile = NULL;
+static vector<shared_ptr<CFilePtr>> outputFiles;
 static bool g_bLowerCase = false;
 static bool g_bUseMsCrypto = false;
 static bool g_bMismatchFound = false;
@@ -592,6 +593,46 @@ public:
 };
 
 // ---------------------------------------------
+// class to hold FILE pointers and close them automatically
+// it provides a cast operator to FILE*
+class CFilePtr
+{
+protected:
+	FILE* m_pFile;
+	// forbid copying
+	CFilePtr(const CFilePtr&) : m_pFile(NULL)
+	{
+
+	}
+	CFilePtr& operator = (const CFilePtr&)
+	{
+		return *this;
+	}
+public:
+	CFilePtr() : m_pFile(NULL)
+	{
+
+	}
+
+	explicit CFilePtr(FILE* pFile) : m_pFile(pFile)
+	{
+
+	}
+
+	~CFilePtr()
+	{
+		if (m_pFile)
+			fclose(m_pFile);
+	}
+
+	operator FILE* () const { return m_pFile; }
+
+	FILE* operator -> () const { return m_pFile; }
+};
+
+
+
+// ---------------------------------------------
 /*
  * This class is used to make Windows console where we are ruuning compatible with printing UNICODE characters
  * Note that in order to display UNICODE characters correctly, the console should be using a font that support
@@ -637,6 +678,8 @@ public:
 	static bool IsHashSize(int size);
 	static Hash* GetHash(LPCTSTR szHashId);
 	static std::vector<std::wstring> GetSupportedHashIds();
+	static bool IsHashIdCombination(LPCTSTR szHashId);
+	static std::vector<std::shared_ptr<Hash>> GetHashes(LPCTSTR szHashId);
 
 	void* operator new(size_t i)
 	{
@@ -991,6 +1034,100 @@ bool Hash::IsHashId(LPCTSTR szHashId)
 		return false;
 }
 
+// Check if a given string is a single hash id or combination of several hash ids separated by a comma character
+// for example: "SHA512" or "SHA1,MD5" or "SHA256,Blake2s,Blake3"
+// it uses the IsHashId method to check if each part of the string is a valid hash id
+// if the string is a combination of hash ids, it returns true, otherwise it returns false
+bool Hash::IsHashIdCombination(LPCTSTR szHashId)
+{
+	if (!szHashId)
+		return false;
+
+	std::wstring strHashId(szHashId);
+	std::wstring strHashIdPart;
+	std::wstring::size_type pos = 0;
+	std::wstring::size_type pos2 = 0;
+	std::wstring::size_type posEnd = strHashId.length();
+
+	while (pos != posEnd)
+	{
+		pos2 = strHashId.find_first_of(L",", pos);
+		if (pos2 == std::wstring::npos)
+			pos2 = posEnd;
+
+		strHashIdPart = strHashId.substr(pos, pos2 - pos);
+
+		if (!IsHashId(strHashIdPart.c_str()))
+			return false;
+
+		pos = pos2;
+		if (pos != posEnd)
+		{
+			pos++;
+			if (pos == posEnd)
+			{
+				// there is a comma at the end without anything after it. so this is error.
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
+
+// Rreturn a vector of Hash instance smart pointers for a given hash id combination
+// if the string is a single hash id, it returns a vector with a single Hash instance smart pointer
+// if the string is a combination of hash ids, it returns a vector with a Hash instance smart pointer for each hash id
+// if the string is not a valid hash id or combination of hash ids, it returns an empty vector
+std::vector<std::shared_ptr<Hash>> Hash::GetHashes(LPCTSTR szHashId)
+{
+	std::vector<std::shared_ptr<Hash>> res;
+
+	if (!szHashId)
+		return res;
+
+	std::wstring strHashId(szHashId);
+	std::wstring strHashIdPart;
+	std::wstring::size_type pos = 0;
+	std::wstring::size_type pos2 = 0;
+	std::wstring::size_type posEnd = strHashId.length();
+
+	while (pos != posEnd)
+	{
+		pos2 = strHashId.find_first_of(L",", pos);
+		if (pos2 == std::wstring::npos)
+			pos2 = posEnd;
+
+		strHashIdPart = strHashId.substr(pos, pos2 - pos);
+
+		if (IsHashId(strHashIdPart.c_str()))
+		{
+			std::shared_ptr<Hash> hash(GetHash(strHashIdPart.c_str()));
+			if (hash)
+				res.push_back(hash);
+		}
+		else
+		{
+			res.clear();
+			break;
+		}
+
+		pos = pos2;
+		if (pos != posEnd)
+		{
+			pos++;
+			if (pos == posEnd)
+			{
+				// there is a comma at the end without anything after it. so this is error.
+				res.clear();
+				break;
+			}
+		}
+	}
+
+	return res;
+}
+
 std::vector<std::wstring> Hash::GetSupportedHashIds()
 {
 	std::vector<std::wstring> res;
@@ -1098,6 +1235,24 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 	}
 #endif
 	return NULL;
+}
+
+// This function clones the Hash instances present on the vector and stores them in the output vector
+void CloneHashes(vector<shared_ptr<Hash>>& pHashes, vector<shared_ptr<Hash>>& pOutputHashes)
+{
+	for (size_t i = 0; i < pHashes.size(); i++)
+	{
+		pOutputHashes.push_back(shared_ptr<Hash>(pHashes[i]->Clone()));
+	}
+}
+
+// This function calls Update method on each instance of Hash stored in the vector
+void UpdateHashes(vector<shared_ptr<Hash>>& pHashes, LPCBYTE pbBuffer, size_t dwBufferSize)
+{
+	for (size_t i = 0; i < pHashes.size(); i++)
+	{
+		pHashes[i]->Update(pbBuffer, dwBufferSize);
+	}
 }
 
 // ----------------------------------------------------------
@@ -1232,7 +1387,7 @@ typedef struct
 	bool bSumMode;
 	bool bSumVerificationMode;
 	ByteArray pbExpectedDigest;
-	Hash* pHash;
+	vector<shared_ptr<Hash>> pHashes;
 } threadParam;
 
 typedef struct _JOB_ITEM {
@@ -1243,9 +1398,11 @@ typedef struct _JOB_ITEM {
 typedef struct _OUTPUT_ITEM {
 	SLIST_ENTRY ItemEntry;
 	std::wstring* pParam;
+	std::wstring* pConsoleParam;
 	bool bQuiet;
 	bool bError;
 	bool bSkipOutputFile;
+	size_t nOutputFile;
 } OUTPUT_ITEM, * POUTPUT_ITEM;
 
 PSLIST_HEADER g_jobsList = NULL;
@@ -1259,7 +1416,6 @@ void FreejobList()
 	{
 		threadParam* p = pJob->pParam;
 		CloseHandle(p->f);
-		delete p->pHash;
 		delete p;
 		_aligned_free(pJob);
 	}
@@ -1295,22 +1451,24 @@ void AddHashJobEntry(threadParam* pParam)
 	InterlockedPushEntrySList(g_jobsList, &(pJobItem->ItemEntry));
 }
 
-void AddOutputEntry(std::wstring* pParam, bool bQuiet, bool bError, bool bSkipOutputFile)
+void AddOutputEntry(std::wstring* pParam, std::wstring* pConsoleParam, bool bQuiet, bool bError, bool bSkipOutputFile, size_t nOutputFile)
 {
 	OUTPUT_ITEM* pOutputItem = (OUTPUT_ITEM*)_aligned_malloc(sizeof(OUTPUT_ITEM), MEMORY_ALLOCATION_ALIGNMENT);
 	if (NULL == pOutputItem)
 		return;
 
 	pOutputItem->pParam = pParam;
+	pOutputItem->pConsoleParam = pConsoleParam;
 	pOutputItem->bQuiet = bQuiet;
 	pOutputItem->bError = bError;
 	pOutputItem->bSkipOutputFile = bSkipOutputFile;
+	pOutputItem->nOutputFile = nOutputFile;
 	InterlockedPushEntrySList(g_outputsList, &(pOutputItem->ItemEntry));
 
 	SetEvent(g_hOutputReadyEvent);
 }
 
-void AddHashJob(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, Hash* pHash)
+void AddHashJob(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, vector<shared_ptr<Hash>>& pHashes)
 {
 	threadParam* p = new threadParam;
 	p->f = f;
@@ -1322,17 +1480,18 @@ void AddHashJob(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, b
 	p->bSumVerificationMode = bSumVerificationMode;
 	if (bSumVerificationMode && pbExpectedDigest)
 	{
-		p->pbExpectedDigest.resize(pHash->GetHashSize());
-		memcpy(p->pbExpectedDigest.data(), pbExpectedDigest, pHash->GetHashSize());
+		// In verification mode, we always have a single hash
+		p->pbExpectedDigest.resize(pHashes[0]->GetHashSize());
+		memcpy(p->pbExpectedDigest.data(), pbExpectedDigest, pHashes[0]->GetHashSize());
 	}
-	p->pHash = pHash;
+	p->pHashes = pHashes;
 
 	AddHashJobEntry(p);
 
 	SetEvent(g_hReadyEvent);
 }
 
-void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, Hash* pHash, LPBYTE pbBuffer, size_t cbBuffer)
+void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, vector<shared_ptr<Hash>>& pHashes, LPBYTE pbBuffer, size_t cbBuffer)
 {
 	bShowProgress = !bQuiet && bShowProgress;
 	unsigned long long currentSize = 0;
@@ -1344,7 +1503,7 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 	while (ReadFile(f, pbBuffer, (DWORD) cbBuffer, &cbCount, NULL) && cbCount)
 	{
 		currentSize += (unsigned long long) cbCount;
-		pHash->Update(pbBuffer, cbCount);
+		UpdateHashes(pHashes,pbBuffer, cbCount);
 		if (bShowProgress && !g_threadsCount)
 			DisplayProgress(szFileName, currentSize, fileSize, startTime, lastBlockTime);
 		if (currentSize == fileSize)
@@ -1358,12 +1517,12 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 
 	if (bSumMode)
 	{
-		BYTE pbSumDigest[128];
-		pHash->Final(pbSumDigest);
-
 		if (bSumVerificationMode)
 		{
-			if (memcmp(pbSumDigest, pbExpectedDigest, pHash->GetHashSize()))
+			// in verification mode we only have one hash
+			BYTE pbSumDigest[128];
+			pHashes[0]->Final(pbSumDigest);
+			if (memcmp(pbSumDigest, pbExpectedDigest, pHashes[0]->GetHashSize()))
 			{
 				g_bMismatchFound = true;
 
@@ -1371,46 +1530,63 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 
 				if (g_threadsCount)
 				{
-					if (!bQuiet || outputFile)
+					if (!bQuiet || outputFiles[0])
 					{
-						AddOutputEntry(new std::wstring(szMsg), bQuiet, false, false);
+						AddOutputEntry(new std::wstring(szMsg), NULL, bQuiet, false, false, 0);
 					}
 				}
 				else
 				{
 					if (!bQuiet) ShowWarningDirect(szMsg.c_str());
-					if (outputFile) _ftprintf(outputFile, L"%s", szMsg.c_str());
+					if (outputFiles[0]) _ftprintf(*outputFiles[0], L"%s", szMsg.c_str());
 				}				
 			}
 		}
 		else
 		{
-
+			BYTE pbSumDigest[128];
 			WCHAR szDigestHex[129]; // enough for 64 bytes digest
-			ToHex(pbSumDigest, pHash->GetHashSize(), szDigestHex);
-
-			std::wstring szMsg = szDigestHex;
-			szMsg += L"  ";
-			if (g_bSumRelativePath)
+			bool bMultiHash = pHashes.size() > 1;
+			for (size_t i = 0; i < pHashes.size(); i++)
 			{
-				// remove the input directory from the path written to the SUM file
-				szMsg += (szFilePath + g_inputDirPathLength);
-			}
-			else
-				szMsg += szFilePath;
-			szMsg += L"\n";
+				
+				pHashes[i]->Final(pbSumDigest);
 
-			if (g_threadsCount)
-			{
-				if (!bQuiet || outputFile)
+				ToHex(pbSumDigest, pHashes[i]->GetHashSize(), szDigestHex);
+
+				std::wstring szMsg = szDigestHex;
+				szMsg += L"  ";
+				if (g_bSumRelativePath)
 				{
-					AddOutputEntry(new std::wstring(szMsg), bQuiet, false, false);
+					// remove the input directory from the path written to the SUM file
+					szMsg += (szFilePath + g_inputDirPathLength);
 				}
-			}
-			else
-			{
-				if (!bQuiet) ShowWarningDirect(szMsg.c_str());
-				if (outputFile) _ftprintf(outputFile, L"%s", szMsg.c_str());
+				else
+					szMsg += szFilePath;
+				szMsg += L"\n";
+
+				wstring szConsoleMsg;
+				if (!bQuiet && bMultiHash)
+				{
+					szConsoleMsg = FormatString(L"%s: %s", pHashes[i]->GetID(), szMsg.c_str());
+				}
+				else
+				{
+					szConsoleMsg = szMsg;
+				}
+
+				if (g_threadsCount)
+				{
+					if (!bQuiet || outputFiles[i])
+					{
+						AddOutputEntry(new std::wstring(szMsg), new std::wstring(szConsoleMsg), bQuiet, false, false, i);
+					}
+				}
+				else
+				{
+					if (!bQuiet) ShowWarningDirect(szConsoleMsg.c_str());
+					if (outputFiles[i]) _ftprintf(*outputFiles[i], L"%s", szMsg.c_str());
+				}
 			}
 		}
 	}
@@ -1425,20 +1601,29 @@ DWORD WINAPI OutputThreadCode(LPVOID pArg)
 	while (!g_bFatalError)
 	{
 		std::wstring* p = NULL;
+		std::wstring* pConsole = NULL;
 		OUTPUT_ITEM* pOutput;
 		
 		while (!g_bFatalError && (pOutput = (OUTPUT_ITEM*)InterlockedPopEntrySList(g_outputsList)))
 		{
+			bool bDeleteConsole = true;
 			p = pOutput->pParam;
+			pConsole = pOutput->pConsoleParam;
+			if (!pConsole)
+			{
+				bDeleteConsole = false;
+				pConsole = p;
+			}
 			if (!pOutput->bQuiet)
 			{
 				if (pOutput->bError)
-					ShowErrorDirect(p->c_str());
+					ShowErrorDirect(pConsole->c_str());
 				else
-					ShowWarningDirect(p->c_str());
+					ShowWarningDirect(pConsole->c_str());
 			}
-			if (!pOutput->bSkipOutputFile) if (outputFile) _ftprintf(outputFile, L"%s", p->c_str());
+			if (!pOutput->bSkipOutputFile) if (outputFiles[pOutput->nOutputFile]) _ftprintf(*outputFiles[pOutput->nOutputFile], L"%s", p->c_str());
 			delete p;
+			if (bDeleteConsole) delete pConsole;
 			_aligned_free(pOutput);
 		}
 
@@ -1476,8 +1661,7 @@ DWORD WINAPI ThreadCode(LPVOID pArg)
 		if (pJob)
 		{
 			p = pJob->pParam;
-			ProcessFile(p->f, p->fileSize, p->szFilePath.c_str(), p->bQuiet, p->bShowProgress, p->bSumMode, p->bSumVerificationMode, p->pbExpectedDigest.data(), p->pHash, pbBuffer, sizeof (pbBuffer));
-			delete p->pHash;
+			ProcessFile(p->f, p->fileSize, p->szFilePath.c_str(), p->bQuiet, p->bShowProgress, p->bSumMode, p->bSumVerificationMode, p->pbExpectedDigest.data(), p->pHashes, pbBuffer, sizeof (pbBuffer));
 			delete p;
 			_aligned_free(pJob);
 		}
@@ -1617,7 +1801,7 @@ void StopThreads(bool bError)
 static CPath g_outputFileName;
 static CPath g_verificationFileName;
 
-DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
+DWORD HashFile(const CPath& filePath, vector<shared_ptr<Hash>>& pHashes, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
 {
 	DWORD dwError = 0;
 	HANDLE f;
@@ -1627,6 +1811,8 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 	map<wstring, HashResultEntry>::const_iterator It;
 	bool bSumVerificationMode = false;
 	LPCBYTE pbExpectedDigest = NULL;
+	vector<shared_ptr<Hash>> pClonedHashes;
+	vector<shared_ptr<Hash>>& pHashesToUse = pHashes;
 
 	if (!excludeSpecList.empty() && IsExcludedName(szFilePath, excludeSpecList))
 		return 0;
@@ -1641,13 +1827,13 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 			{
 				std::wstring szMsg = FormatString(_T("Error: file \"%s\" not found in checksum file.\n"), szFilePath);
 				
-				if (outputFile) _ftprintf(outputFile, L"%s", szMsg.c_str());
+				if (outputFiles[0]) _ftprintf(*outputFiles[0], L"%s", szMsg.c_str());
 				if (g_bSkipError)
 				{					
 					if (!bQuiet)
 					{
 						if (g_threadsCount)
-							AddOutputEntry(new std::wstring(szMsg), bQuiet, true, true);
+							AddOutputEntry(new std::wstring(szMsg), NULL, bQuiet, true, true, 0);
 						else
 							ShowErrorDirect(szMsg.c_str());
 					}
@@ -1667,7 +1853,9 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 				bSumVerificationMode = true;
 			}
 		}
-		pHash = Hash::GetHash(pHash->GetID());
+		
+		CloneHashes(pHashes, pClonedHashes);
+		pHashesToUse = pClonedHashes;
 	}
 
 	if (bIncludeNames)
@@ -1702,7 +1890,7 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 				pNameToHash = g_szCanonalizedName;
 		}
 
-		pHash->Update((LPCBYTE)pNameToHash, _tcslen(pNameToHash) * sizeof(TCHAR));
+		UpdateHashes(pHashesToUse ,(LPCBYTE)pNameToHash, _tcslen(pNameToHash) * sizeof(TCHAR));
 
 		if (pCanonicalName)
 			LocalFree(pCanonicalName);
@@ -1724,23 +1912,22 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 	{
 		if (bSumMode && g_threadsCount)
 		{
-			AddHashJob(f, fileSize.QuadPart, szFilePath, bQuiet, bShowProgress, bSumMode, bSumVerificationMode, pbExpectedDigest, pHash);
-			pHash = NULL; // now hash pointer belongs to the job
+			AddHashJob(f, fileSize.QuadPart, szFilePath, bQuiet, bShowProgress, bSumMode, bSumVerificationMode, pbExpectedDigest, pHashesToUse);
 		}
 		else
-			ProcessFile(f, fileSize.QuadPart, szFilePath, bQuiet, bShowProgress, bSumMode, bSumVerificationMode, pbExpectedDigest , pHash, g_pbBuffer, sizeof (g_pbBuffer));
+			ProcessFile(f, fileSize.QuadPart, szFilePath, bQuiet, bShowProgress, bSumMode, bSumVerificationMode, pbExpectedDigest , pHashesToUse, g_pbBuffer, sizeof (g_pbBuffer));
 	}
 	else
 	{
 		std::wstring szMsg = FormatString (_T("Failed to open file \"%s\" for reading (error 0x%.8X)\n"), szFilePath, GetLastError());
-		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, L"%s", szMsg.c_str());
+		if (outputFiles[0] && (!bSumMode || bSumVerificationMode)) _ftprintf(*outputFiles[0], L"%s", szMsg.c_str());
 		if (g_bSkipError)
 		{
 			if (!bQuiet)
 			{
 				if (g_threadsCount)
 				{
-					AddOutputEntry(new std::wstring(szMsg), bQuiet, true, true);
+					AddOutputEntry(new std::wstring(szMsg), NULL, bQuiet, true, true, 0);
 				}
 				else
 					ShowErrorDirect(szMsg.c_str());
@@ -1756,12 +1943,10 @@ DWORD HashFile(const CPath& filePath, Hash* pHash, bool bIncludeNames, bool bStr
 		}
 	}
 
-	if (bSumMode && pHash)
-		delete pHash;
 	return dwError;
 }
 
-DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
+DWORD HashDirectory(const CPath& dirPath, vector<shared_ptr<Hash>>& pHashes, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
 {
 	wstring szDir = dirPath.GetAbsolutPathValue();
 	WIN32_FIND_DATA ffd;
@@ -1785,13 +1970,13 @@ DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool 
 	{
 		dwError = GetLastError();
 		std::wstring szMsg = FormatString (_T("FindFirstFile failed on \"%s\" with error 0x%.8X.\n"), szDirPath, dwError);	
-		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, L"%s", szMsg.c_str());
+		if (outputFiles[0] && (!bSumMode || bSumVerificationMode)) _ftprintf(*outputFiles[0], L"%s", szMsg.c_str());
 		if (g_bSkipError)
 		{
 			if (!bQuiet)
 			{
 				if (g_threadsCount)
-					AddOutputEntry(new std::wstring(szMsg), bQuiet, true, true);
+					AddOutputEntry(new std::wstring(szMsg), NULL, bQuiet, true, true, 0);
 				else
 					ShowErrorDirect(szMsg.c_str());
 			}
@@ -1858,13 +2043,13 @@ DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool 
 		std::wstring szMsg = FormatString (TEXT("FindNextFile failed while listing \"%s\". \n Error 0x%.8X.\n"), szDirPath, dwError);
 		FindClose(hFind);
 		
-		if (outputFile && (!bSumMode || bSumVerificationMode)) _ftprintf(outputFile, L"%s", szMsg.c_str());
+		if (outputFiles[0] && (!bSumMode || bSumVerificationMode)) _ftprintf(*outputFiles[0], L"%s", szMsg.c_str());
 		if (g_bSkipError)
 		{
 			if (!bQuiet)
 			{
 				if (g_threadsCount)
-					AddOutputEntry(new std::wstring(szMsg), bQuiet, true, true);
+					AddOutputEntry(new std::wstring(szMsg), NULL, bQuiet, true, true, 0);
 				else
 					ShowErrorDirect(szMsg.c_str());
 			}
@@ -1917,7 +2102,7 @@ DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool 
 				pNameToHash = g_szCanonalizedName;
 		}
 
-		pHash->Update((LPCBYTE)pNameToHash, _tcslen(pNameToHash) * sizeof(TCHAR));
+		UpdateHashes(pHashes,(LPCBYTE)pNameToHash, _tcslen(pNameToHash) * sizeof(TCHAR));
 		if (pCanonicalName)
 			LocalFree(pCanonicalName);
 	}
@@ -1926,13 +2111,13 @@ DWORD HashDirectory(const CPath& dirPath, Hash* pHash, bool bIncludeNames, bool 
 	{
 		if (it->IsDir())
 		{
-			dwError = HashDirectory(it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestList);
+			dwError = HashDirectory(it->GetPath(), pHashes, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestList);
 			if (dwError)
 				break;
 		}
 		else
 		{
-			dwError = HashFile(it->GetPath(), pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestList);
+			dwError = HashFile(it->GetPath(), pHashes, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestList);
 			if (dwError)
 				break;
 		}
@@ -1970,7 +2155,9 @@ void ShowUsage()
 		std::vector<std::wstring> algos = Hash::GetSupportedHashIds();
 		for (size_t i = 0; i < algos.size(); i++)
 			_tprintf(_T(" %s"), algos[i].c_str());
-		_tprintf(_T("\n\n")
+		_tprintf(_T("\n")
+		TEXT("Or any combinarion of the above values separated by comma, except when -verify is used\n")
+		TEXT("\n\n")
 		TEXT("  ResultFileName: text file where the result will be appended\n")
 		TEXT("  -benchmark: perform speed benchmark of the selected algorithm. If \"All\" is specified, then all algorithms are benchmarked.\n")
 		TEXT("  -mscrypto: use Windows native implementation of hash algorithms (Always enabled on ARM).\n")
@@ -2074,7 +2261,7 @@ void BenchmarkAlgo(LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard, std::ws
 		SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
 
 		if (!bQuiet) _tprintf(_T("%s\n"), (TCHAR*)pbData);
-		if (outputFile) _ftprintf(outputFile, _T("%s\n"), (TCHAR*)pbData);
+		if (outputFiles[0]) _ftprintf(*outputFiles[0], _T("%s\n"), (TCHAR*)pbData);
 
 		if (bCopyToClipboard)
 			CopyToClipboard((TCHAR*)pbData);
@@ -2094,27 +2281,29 @@ void BenchmarkAlgo(LPCTSTR hashAlgo, bool bQuiet, bool bCopyToClipboard, std::ws
 	else
 	{
 		if (!bQuiet) ShowError(_T("Failed to allocate memory for %s benchmark.\n"), hashAlgo);
-		if (outputFile) _ftprintf(outputFile, _T("%s\n"), (TCHAR*)pbData);
+		if (outputFiles[0]) _ftprintf(*outputFiles[0], _T("%s\n"), (TCHAR*)pbData);
 	}
 }
 
-void PerformBenchmark(Hash* pHash, bool bQuiet, bool bCopyToClipboard)
+void PerformBenchmark(const vector<shared_ptr<Hash>>& pHashes, bool bQuiet, bool bCopyToClipboard)
 {
-	if (pHash)
-		BenchmarkAlgo(pHash->GetID(), bQuiet, bCopyToClipboard, NULL);
+	std::wstring outputText = L"";
+	std::wstring* pOutputText = bCopyToClipboard ? &outputText : NULL;
+	std::vector<std::wstring> hashList;
+	if (pHashes.empty())
+		hashList = Hash::GetSupportedHashIds();
 	else
 	{
-		std::wstring outputText = L"";
-		std::wstring* pOutputText = bCopyToClipboard ? &outputText : NULL;
-		std::vector<std::wstring> hashList = Hash::GetSupportedHashIds();
-		for (std::vector<std::wstring>::const_iterator It = hashList.begin(); It != hashList.end(); It++)
-		{
-			BenchmarkAlgo(It->c_str(), bQuiet, false, pOutputText);
-		}
-
-		if (bCopyToClipboard)
-			CopyToClipboard(outputText.c_str());
+		for (std::vector<shared_ptr<Hash>>::const_iterator It = pHashes.begin(); It != pHashes.end(); It++)
+			hashList.push_back((*It)->GetID());
 	}
+	for (std::vector<std::wstring>::const_iterator It = hashList.begin(); It != hashList.end(); It++)
+	{
+		BenchmarkAlgo(It->c_str(), bQuiet, false, pOutputText);
+	}
+
+	if (bCopyToClipboard)
+		CopyToClipboard(outputText.c_str());
 }
 
 // structure used to hold value from DirHash.ini
@@ -2634,11 +2823,25 @@ bool IsWindowsLongPathNamesEnabled()
 
 }
 
+bool ValidateHashesVector(vector<shared_ptr<Hash>>& pHashes)
+{
+	bool bRet = true;
+	for (auto it = pHashes.begin(); it != pHashes.end(); it++)
+	{
+		if (!(*it)->IsValid())
+		{
+			bRet = false;
+			break;
+		}
+	}
+	return bRet;
+}
+
 int _tmain(int argc, _TCHAR* argv[])
 {
 	HANDLE hFind = INVALID_HANDLE_VALUE;
 	DWORD dwError = 0;
-	Hash* pHash = NULL;
+	vector<shared_ptr<Hash>> pHashes;
 	bool bDontWait = false;
 	bool bIncludeNames = false;
 	bool bStripNames = false;
@@ -2899,7 +3102,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			{
 				g_bNoFollow = true;
 			}
-			else if (Hash::IsHashId(argv[i]))
+			else if (Hash::IsHashIdCombination(argv[i]))
 			{
 				hashAlgoToUse = argv[i];
 			}
@@ -2922,7 +3125,6 @@ int _tmain(int argc, _TCHAR* argv[])
 			}
 			else
 			{
-				if (outputFile) fclose(outputFile);
 				ShowUsage();
 				ShowError(_T("Error: Argument \"%s\" not recognized\n"), argv[i]);
 				WaitForExit(bDontWait);
@@ -2933,12 +3135,10 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	if (!bBenchmarkAllAlgos)
 	{
-		pHash = Hash::GetHash(hashAlgoToUse.c_str());
-		if (!pHash || !pHash->IsValid())
+		pHashes = Hash::GetHashes(hashAlgoToUse.c_str());
+		if (pHashes.empty()|| !ValidateHashesVector(pHashes))
 		{
-			if (outputFile) fclose(outputFile);
-			if (pHash) delete pHash;
-			ShowError(_T("Error: Failed to initialize the hash algorithm \"%s\"\n"), hashAlgoToUse.c_str());
+			ShowError(_T("Error: Failed to initialize the hash algorithm(s) \"%s\"\n"), hashAlgoToUse.c_str());
 			WaitForExit(bDontWait);
 			return 1;
 		}
@@ -2947,32 +3147,69 @@ int _tmain(int argc, _TCHAR* argv[])
 	if (!bQuiet)
 		ShowLogo();
 
+	// in case "-verify" was not specified, set SUM mode if it was specied in DirHash.ini
+	if (!bVerifyMode && bForceSumMode)
+		bSumMode = true;
+
+	// we don't support multiple hash algorithms in verify mode
+	if (bVerifyMode && pHashes.size() > 1)
+	{
+		if (!bQuiet)
+			ShowError(TEXT("Error: -verify can not be combined with multiple hash algorithms\n"));
+		WaitForExit(bDontWait);
+		return (-10);
+	}
+
 	if (!g_outputFileName.GetPathValue().empty())
 	{
-		outputFile = _tfopen(g_outputFileName.GetAbsolutPathValue().c_str(), bOverwrite ? _T("wt,ccs=UTF-8") : _T("a+t,ccs=UTF-8"));
-		if (!outputFile)
+		// in case of sum mode and if there are multiple hash algorithms specified, we need to create a separate file for each hash algorithm
+		// the file name will be the same as the output file name, but with the hash algorithm appended		
+		bool bMultiHashMode = bSumMode && pHashes.size() > 1;
+		for (size_t i = 0; i < pHashes.size(); i++)
 		{
-			if (!bQuiet)
+			// create a new file name by appending the hash algorithm name
+			std::wstring newFileName = g_outputFileName.GetAbsolutPathValue();
+			if (bMultiHashMode)
 			{
-				ShowError(_T("!!!Failed to open the result file for writing!!!\n"));
+				newFileName += _T(".");
+				newFileName += pHashes[i]->GetID();
 			}
+			// open the file
+			FILE* newFile = _tfopen(newFileName.c_str(), bOverwrite ? _T("wt,ccs=UTF-8") : _T("a+t,ccs=UTF-8"));
+			if (!newFile)
+			{
+				if (!bQuiet)
+				{
+					ShowError(_T("!!!Failed to open the %s SUM file for writing!!!\n"), pHashes[i]->GetID());
+				}
+			}
+			else if (!bOverwrite)
+			{
+				// add a new Line to the file to avoid issues with existing content
+				__int64 fileLength = _filelengthi64(_fileno(newFile));
+				if (fileLength > 3) // ignore UTF-8 BOM bytes which are always written by fopen when "ccs=UTF-8" specified
+					_ftprintf(newFile, L"\n");
+			}
+
+			if (newFile)
+				// add the file to the list of output files
+				outputFiles.push_back(shared_ptr<CFilePtr>(new CFilePtr(newFile)));
+			else
+				outputFiles.push_back(NULL);
+			
+			if (!bSumMode)
+				break;
 		}
-		else if (!bOverwrite)
-		{
-			// add a new Line to the file to avoid issues with existing content
-			__int64 fileLength = _filelengthi64(_fileno(outputFile));
-			if (fileLength > 3) // ignore UTF-8 BOM bytes which are always written by fopen when "ccs=UTF-8" specified
-				_ftprintf(outputFile, L"\n");
-		}
+	}
+	else
+	{
+		// no output file specified, add NULL to the list of output files
+		outputFiles.push_back(NULL);
 	}
 
 	if (bBenchmarkOp)
 	{
-
-		PerformBenchmark(pHash, bQuiet, bCopyToClipboard);
-
-		if (pHash)
-			delete pHash;
+		PerformBenchmark(pHashes, bQuiet, bCopyToClipboard);
 
 		WaitForExit(bDontWait);
 		return dwError;
@@ -2989,8 +3226,6 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	if (!GetPathType(inputPath.GetAbsolutPathValue().c_str(), bIsFile))
 	{
-		if (outputFile) fclose(outputFile);
-		delete pHash;
 		if (!bQuiet)
 			ShowError(TEXT("Error: The given input file doesn't exist\n"));
 		WaitForExit(bDontWait);
@@ -2999,22 +3234,16 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	if (g_bNoFollow && IsReparsePoint(argv[1]))
 	{
-		if (outputFile) fclose(outputFile);
-		delete pHash;
 		if (!bQuiet)
 			ShowError(TEXT("Error: -nofollow specified but the given input file or directoty is Symbolic Link, Junction Point or Mount Point.\n"));
 		WaitForExit(bDontWait);
 		return (-9);
 	}
 
-	// in case "-verify" was not specified, set SUM mode if it was specied in DirHash.ini
-	if (!bVerifyMode && bForceSumMode)
-		bSumMode = true;
-
 	if (!bQuiet)
 	{
 		_tprintf(_T("Using %s to %s %s of \"%s\" ...\n"),
-			pHash->GetID(),
+			hashAlgoToUse.c_str(),
 			bVerifyMode? _T("verify") : _T("compute"),
 			bSumMode ? _T("checksum") : _T("hash"),
 			bStripNames ? GetFileName(argv[1]) : argv[1]);
@@ -3050,10 +3279,10 @@ int _tmain(int argc, _TCHAR* argv[])
 		{
 			// check that hash length used in the checksum file is the same as the one specified by the user
 			int sumFileHashLen = (int)digestsList.begin()->second.m_digest.size();
-			if (sumFileHashLen != pHash->GetHashSize())
+			if (sumFileHashLen != pHashes[0]->GetHashSize())
 			{
 				if (!bQuiet)
-					ShowError(TEXT("Error: hash length parsed from checksum file (%d bytes) is different from used hash length (%d bytes).\n"), sumFileHashLen, pHash->GetHashSize());
+					ShowError(TEXT("Error: hash length parsed from checksum file (%d bytes) is different from used hash length (%d bytes).\n"), sumFileHashLen, pHashes[0]->GetHashSize());
 				WaitForExit(bDontWait);
 				return (-4);
 			}
@@ -3066,7 +3295,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			map < wstring, HashResultEntry>::iterator It = digestsList.find(entryName);
 			if (It == digestsList.end())
 			{
-				map<int, ByteArray>::iterator ItRaw = rawDigestsList.find(pHash->GetHashSize());
+				map<int, ByteArray>::iterator ItRaw = rawDigestsList.find(pHashes[0]->GetHashSize());
 				if (ItRaw == rawDigestsList.end())
 				{
 					if (!bQuiet)
@@ -3080,10 +3309,10 @@ int _tmain(int argc, _TCHAR* argv[])
 			else
 				verifyDigest = It->second.m_digest;
 
-			if (verifyDigest.size() != (size_t) pHash->GetHashSize())
+			if (verifyDigest.size() != (size_t) pHashes[0]->GetHashSize())
 			{
 				if (!bQuiet)
-					ShowError(TEXT("Error: hash length parsed from result file (%d bytes) is different from used hash length (%d bytes).\n"), (int) verifyDigest.size(), pHash->GetHashSize());
+					ShowError(TEXT("Error: hash length parsed from result file (%d bytes) is different from used hash length (%d bytes).\n"), (int) verifyDigest.size(), pHashes[0]->GetHashSize());
 				WaitForExit(bDontWait);
 				return (-4);
 			}
@@ -3104,13 +3333,25 @@ int _tmain(int argc, _TCHAR* argv[])
 		SetConsoleTextAttribute(g_hConsole, g_wCurrentAttributes);		
 
 		if (bUseThreads)
-			StartThreads(!bQuiet || outputFile);
+		{
+			bool bOutfileValid = false;
+			// check that at least one of the output files is valid
+			for (size_t i = 0; i < outputFiles.size(); i++)
+			{
+				if (outputFiles[i])
+				{
+					bOutfileValid = true;
+					break;
+				}
+			}
+			StartThreads(!bQuiet || bOutfileValid);
+		}
 	}
 
 	if (!bIsFile)
 	{
 		CPath dirPath(inputArg.c_str());
-		dwError = HashDirectory(dirPath, pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
+		dwError = HashDirectory(dirPath, pHashes, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
 	}
 	else
 	{
@@ -3140,7 +3381,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		};
 
 		if (dwError == NO_ERROR)
-			dwError = HashFile(filePath, pHash, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
+			dwError = HashFile(filePath, pHashes, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
 	}
 
 	if (bSumMode)
@@ -3174,12 +3415,12 @@ int _tmain(int argc, _TCHAR* argv[])
 						else
 							ShowWarning(_T("%lu entries in \"%s\" where not found:\n"), (unsigned long)skippedEntries, g_verificationFileName.GetPathValue().c_str());
 					}
-					if (outputFile)
+					if (outputFiles[0])
 					{
 						if (skippedEntries == 1)
-							_ftprintf(outputFile, _T("1 entry in \"%s\" was not found:\n"), g_verificationFileName.GetPathValue().c_str());
+							_ftprintf(*outputFiles[0], _T("1 entry in \"%s\" was not found:\n"), g_verificationFileName.GetPathValue().c_str());
 						else
-							_ftprintf(outputFile, _T("%lu entries in \"%s\" where not found:\n"), (unsigned long)skippedEntries, g_verificationFileName.GetPathValue().c_str());
+							_ftprintf(*outputFiles[0], _T("%lu entries in \"%s\" where not found:\n"), (unsigned long)skippedEntries, g_verificationFileName.GetPathValue().c_str());
 					}
 
 					unsigned long counter = 1;
@@ -3189,16 +3430,16 @@ int _tmain(int argc, _TCHAR* argv[])
 						{
 							if (!bQuiet)
 								ShowWarning(_T(" %lu - %s\n"), counter, It->first.c_str());
-							if (outputFile)
-								_ftprintf(outputFile, _T(" %lu - %s\n"), counter, It->first.c_str());
+							if (outputFiles[0])
+								_ftprintf(*outputFiles[0], _T(" %lu - %s\n"), counter, It->first.c_str());
 							counter++;
 						}
 					}
 
 					if (!bQuiet)
 						_tprintf(_T("\n"));
-					if (outputFile)
-						_ftprintf(outputFile, _T("\n"));
+					if (outputFiles[0])
+						_ftprintf(*outputFiles[0], _T("\n"));
 
 					// report error
 					g_bMismatchFound = true;
@@ -3213,9 +3454,9 @@ int _tmain(int argc, _TCHAR* argv[])
 							argv[1],
 							g_verificationFileName.GetPathValue().c_str());
 					}
-					if (outputFile)
+					if (outputFiles[0])
 					{
-						_ftprintf(outputFile, _T("Verification of \"%s\" against \"%s\" failed!\n"),
+						_ftprintf(*outputFiles[0], _T("Verification of \"%s\" against \"%s\" failed!\n"),
 							argv[1],
 							g_verificationFileName.GetPathValue().c_str());
 					}
@@ -3229,9 +3470,9 @@ int _tmain(int argc, _TCHAR* argv[])
 							argv[1],
 							g_verificationFileName.GetPathValue().c_str());
 					}
-					if (outputFile)
+					if (outputFiles[0])
 					{
-						_ftprintf(outputFile, _T("Verification of \"%s\" against \"%s\" succeeded.\n"),
+						_ftprintf(*outputFiles[0], _T("Verification of \"%s\" against \"%s\" succeeded.\n"),
 							argv[1],
 							g_verificationFileName.GetPathValue().c_str());
 					}
@@ -3241,14 +3482,14 @@ int _tmain(int argc, _TCHAR* argv[])
 				{
 					if (!bQuiet)
 						ShowWarning(_T("\n%d line(s) were skipped in \"%s\" because they are corrupted.\nSkipped lines numbers are: "), (int)skippedLines.size(), g_verificationFileName.GetPathValue().c_str());						
-					if (outputFile)
+					if (*outputFiles[0])
 						_tprintf(_T("\n%d line(s) were skipped in \"%s\" because they are corrupted.\nSkipped lines numbers are: "), (int)skippedLines.size(), g_verificationFileName.GetPathValue().c_str());
 						
 					for (size_t i = 0; i < min(skippedLines.size(), 9); i++)
 					{
 						if (!bQuiet)
 							ShowWarning(_T("%d "), skippedLines[i]);							
-						if (outputFile)
+						if (*outputFiles[0])
 							_tprintf(_T("%d "), skippedLines[i]);							
 					}
 
@@ -3256,7 +3497,7 @@ int _tmain(int argc, _TCHAR* argv[])
 					{
 						if (!bQuiet)
 							ShowWarning(_T("... %d\n"), skippedLines[skippedLines.size() - 1]);							
-						if (outputFile)
+						if (*outputFiles[0])
 							_tprintf(_T("... %d\n"), skippedLines[skippedLines.size() - 1]);
 					}
 				}
@@ -3266,10 +3507,9 @@ int _tmain(int argc, _TCHAR* argv[])
 		else
 		{
 			BYTE pbDigest[64];
-			pHash->Final(pbDigest);
-
 			if (bVerifyMode)
 			{
+				pHashes[0]->Final(pbDigest);
 				if (memcmp(pbDigest, verifyDigest.data(), verifyDigest.size()))
 				{
 					if (!bQuiet)
@@ -3278,9 +3518,9 @@ int _tmain(int argc, _TCHAR* argv[])
 							argv[1],
 							g_verificationFileName.GetPathValue().c_str());
 					}
-					if (outputFile)
+					if (outputFiles[0])
 					{
-						_ftprintf(outputFile, _T("Verification of \"%s\" against \"%s\" failed!\n"),
+						_ftprintf(*outputFiles[0], _T("Verification of \"%s\" against \"%s\" failed!\n"),
 							argv[1],
 							g_verificationFileName.GetPathValue().c_str());
 					}
@@ -3294,9 +3534,9 @@ int _tmain(int argc, _TCHAR* argv[])
 							argv[1],
 							g_verificationFileName.GetPathValue().c_str());
 					}
-					if (outputFile)
+					if (outputFiles[0])
 					{
-						_ftprintf(outputFile, _T("Verification of \"%s\" against \"%s\" succeeded.\n"),
+						_ftprintf(*outputFiles[0], _T("Verification of \"%s\" against \"%s\" succeeded.\n"),
 							argv[1],
 							g_verificationFileName.GetPathValue().c_str());
 					}
@@ -3305,37 +3545,48 @@ int _tmain(int argc, _TCHAR* argv[])
 			else
 			{
 				TCHAR szDigestHex[129]; 
-				if (!bQuiet)
+				// call Final method for each hash in  the pHashes vector and display the result
+				for (size_t i = 0; i < pHashes.size(); i++)
 				{
-					if (outputFile)
+					pHashes[i]->Final(pbDigest);
+					if (!bQuiet)
 					{
-						_ftprintf(outputFile, __T("%s hash of \"%s\" (%d bytes) = "),
-							pHash->GetID(),
-							GetFileName(argv[1]),
-							pHash->GetHashSize());
+						if (outputFiles[0])
+						{
+							_ftprintf(*outputFiles[0], __T("%s hash of \"%s\" (%d bytes) = "),
+								pHashes[i]->GetID(),
+								GetFileName(argv[1]),
+								pHashes[i]->GetHashSize());
+						}
+						_tprintf(_T("%s (%d bytes) = "), pHashes[i]->GetID(), pHashes[i]->GetHashSize());
 					}
-					_tprintf(_T("%s (%d bytes) = "), pHash->GetID(), pHash->GetHashSize());
+
+					// display hash in yellow
+					SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
+
+					ToHex(pbDigest, pHashes[i]->GetHashSize(), szDigestHex);
+
+					_tprintf(szDigestHex);
+					if (outputFiles[0]) _ftprintf(*outputFiles[0], szDigestHex);
+
+					if (bCopyToClipboard)
+						CopyToClipboard(szDigestHex);
+
+					// restore normal text color
+					SetConsoleTextAttribute(g_hConsole, g_wAttributes);
+
+					if (i < (pHashes.size() - 1))
+					{
+						_tprintf(_T("\n"));
+						if (outputFiles[0]) _ftprintf(*outputFiles[0], _T("\n"));
+					}
 				}
-
-				// display hash in yellow
-				SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
-
-				ToHex(pbDigest, pHash->GetHashSize(), szDigestHex);
-
-				_tprintf(szDigestHex);
-				if (outputFile) _ftprintf(outputFile, szDigestHex);
-
-				if (bCopyToClipboard)
-					CopyToClipboard(szDigestHex);
-
-				// restore normal text color
-				SetConsoleTextAttribute(g_hConsole, g_wAttributes);
 
 				SecureZeroMemory(szDigestHex, sizeof(szDigestHex));
 			}
 
 			_tprintf(_T("\n"));
-			if (outputFile) _ftprintf(outputFile, _T("\n"));
+			if (outputFiles[0]) _ftprintf(*outputFiles[0], _T("\n"));
 
 			SecureZeroMemory(pbDigest, sizeof(pbDigest));
 		}
@@ -3346,9 +3597,6 @@ int _tmain(int argc, _TCHAR* argv[])
 		if (wcslen(g_szLastErrorMsg.c_str()))
 			ShowErrorDirect(g_szLastErrorMsg.c_str());
 	}
-
-	delete pHash;
-	if (outputFile) fclose(outputFile);
 
 	SecureZeroMemory(g_pbBuffer, sizeof(g_pbBuffer));
 
