@@ -19,10 +19,10 @@
   <tr>
     <td width="21%" bgcolor="#33CCCC" valign="top">&nbsp;
       <p style="margin-left: 20"><b><font face="Arial" size="2" color="#000000">
-	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.23.0/DirHash-1.23.0-x64.zip" target="_blank">DirHash Windows 64-Bit Binary</a><br>
-	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.23.0/DirHash-1.23.0-arm64.zip" target="_blank">DirHash Windows ARM64 Binary</a><br>
-	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.23.0/DirHash-1.23.0-x86.zip" target="_blank">DirHash Windows 32-Bit Binary</a><br>
-      <a href="https://github.com/idrassi/DirHash/archive/DirHash_1.23.0.zip" target="_blank">DirHash Source Code Zip</a><br>
+	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.24.0/DirHash-1.24.0-x64.zip" target="_blank">DirHash Windows 64-Bit Binary</a><br>
+	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.24.0/DirHash-1.24.0-arm64.zip" target="_blank">DirHash Windows ARM64 Binary</a><br>
+	  <a href="https://github.com/idrassi/DirHash/releases/download/DirHash_1.24.0/DirHash-1.24.0-x86.zip" target="_blank">DirHash Windows 32-Bit Binary</a><br>
+      <a href="https://github.com/idrassi/DirHash/archive/DirHash_1.24.0.zip" target="_blank">DirHash Source Code Zip</a><br>
       <a href="https://github.com/idrassi/DirHash" target="_blank">DirHash On GitHub</a><br>
       <a href="https://www.idrix.fr/Root/content/category/7/31/55/" target="_blank">IDRIX Official DirHash page</a><br>
       </font></b></p>
@@ -43,7 +43,7 @@
         <p><font size="2" face="Arial">DirHash is a Windows console program that computes the hash of a given directory content or a single file. It also supports creating SUM of files in a way similar to classical shasum program. Recursive Lexicographical order is used for browsing the directory hierarchy so that the computed hash can be seen as unique fingerprint of the target directory. Supported hashing algorithms are MD5, SHA-1, SHA-256, SHA-384, SHA-512, Streebog, Blake2s, Blake2 and Blake3.</font></p>
         <p><font face="Arial" size="5">Usage</font></p>
         <p><font size="2" face="Arial">DirHash can be invoked from the command like as follows: <br>
-<p>DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-sumRelativePath] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite] [-quiet] [-nologo] [-nowait] [-skipError] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] [-nofollow]</p>
+<p>DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-sumRelativePath] [-includeLastDir] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite] [-quiet] [-nologo] [-nowait] [-skipError] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] [-nofollow]</p>
 <p>DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-clip] [-overwrite] [-quiet] [-nologo] [-nowait] </p>
 <p>Possible values for HashAlgo (not case sensitive):</p>
 
@@ -57,11 +57,17 @@
 <li>Blake2s</li>
 <li>Blake2b</li>
 <li>Blake3</li>
+<li>Any combination of the above separated by comma, except when <code>-verify</code> is used</li>
 </ul>
 
 <p>If <b>HashAlgo</b> is not specified, Blake3 is used by default.</p>
 
 <p><b>ResultFileName</b> specifies an optional text file where the result will be appended.</p>
+
+<p>For example, setting HashAlgo to <b>sha256,sha512</b> will use SHA256 and SHA512 for hashing the input file or directory and <b>sha256,sha512,blake2s</b> will use SHA256, SHA512 and Blake2s.
+If -sum is used with multiple hash algorithms, a SUM file will be generated for each hash algorithm and its file name will ResultFileName appended with the hash algorithm name.
+For example, if -sum is used with <b>sha256,sha512</b>, then two SUM files will be generated: <b>ResultFileName.sha256</b> and <b>ResultFileName.sha512</b>.
+</p>
 
 <p>if <b>-benchmark</b> is specified, program will perform speed benchmark of the selected hash algorithm</p>
 
@@ -72,6 +78,8 @@
 <p>if <b>-sumRelativePath</b> is specified (only when -sum is specified), the file paths are stored in the output file as relative to the input directory.</p>
 
 <p>if <b>-verify</b> is specified, program will verify the hash of every file processed against its hash value present in the given checksum file.</p>
+
+<p>if <b>-includeLastDir</b> (only when -sum or -verify is specified), the last directory name of the input directory is included in the SUM file entries and used in the verification process. This switch implies -sumRelativePath.</p>
 
 <p>if <b>-threads</b> is specified (only when -sum or -verify specified), multithreading will be used to accelerate hashing of files.</p>
 
@@ -108,6 +116,7 @@ An example of DirHash.ini is shown below:<br/>
 Hash=Blake3
 Sum=True
 SumRelativePath=True
+IncludeLastDir=False
 Threads=True
 Quiet=False
 Nologo=True
@@ -123,7 +132,7 @@ NoFollow=False
 
 		<p>&nbsp;</p>
       </blockquote>
-      <p align="center"><font face="Arial" size="1">© COPYRIGHT 2021 ALL RIGHTS
+      <p align="center"><font face="Arial" size="1">© COPYRIGHT 2023 ALL RIGHTS
       RESERVED Mounir IDRASSI (<a href="https://www.idrix.fr">https://www.idrix.fr</a>)</font></td>
     <td width="18%" bgcolor="#CCFFFF" valign="top">
       <table border="0" width="100%" cellspacing="0" cellpadding="0">
@@ -134,7 +143,7 @@ NoFollow=False
       <table border="0" width="100%" cellspacing="0" cellpadding="0">
         <tr>
           <td width="100%" bgcolor="#CCFFFF"><br>
-            <font size="2" face="Arial">DirHash uses OpenSSL for its cryptographic operations on x86 and x64 platforms and the source comes with pre-built library files of OpenSSL 1.1.1g. On Windows ARM64 platforms (for example Microsoft Surface Pro X), DirHash uses Windows native implementation for hash algorithms since OpenSSL is not optimized for Windows ARM64 platform.<br>
+            <font size="2" face="Arial">DirHash uses OpenSSL for its cryptographic operations on x86 and x64 platforms and the source comes with pre-built library files of OpenSSL 1.1.1g. DirHash can also use Windows native implementation for hash algorithms (using -mscrypto switch) which can enhance performance on some configuration especially ARM64.<br>
             <font size="2" face="Arial">DirHash source code comes with a Microsoft Visual Studio 2019 solution file.</font><br>
             &nbsp;</font></td>
         </tr>
