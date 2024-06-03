@@ -2,7 +2,7 @@
 Windows command line utility to compute hash of directories and files
 =====================================================================
 
-Copyright (c) 2015-2023 Mounir IDRASSI
+Copyright (c) 2015-2024 Mounir IDRASSI
 mounir@idrix.fr
 
 3-clause BSD license ("New BSD License")
@@ -12,7 +12,7 @@ Home page: https://idrassi.github.io/DirHash/
 Usage
 ------------
 
-DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-sumRelativePath] [-includeLastDir] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite] [-quiet] [-nologo] [-nowait] [-skipError] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] [-nofollow]
+DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-progress] [-sum] [-sumRelativePath] [-includeLastDir] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite] [-quiet] [-nologo] [-nowait] [-skipError] [-hashnames [-stripnames]] [-exclude pattern1] [-exclude patter2] [-only pattern1] [-only patter2] [-nofollow]
 
 DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-clip] [-overwrite] [-quiet] [-nologo] [-nowait]
 
@@ -66,7 +66,9 @@ If `-hashnames` is specified, the case sensitive names of the files and director
 
 If `-stripnames` is specified (only when -hashnames also specified), only the the last path portion of DirectoryOrFilePath is used for hash calculation.
 
-If `-exclude` is specified, it must be followed by a string indicating the file type that must be excluded from the hash computation. For example, to exclude .log files, you specify "-exclude *.log". This switch can be repeated many times in the command line to specify different file types to exclude.
+If `-exclude` is specified (cannot be combined with -only), it must be followed by a string indicating the file type that must be excluded from the hash computation. For example, to exclude .log files, you specify "-exclude *.log". This switch can be repeated many times in the command line to specify different file types to exclude.
+
+If `-only` is specified (cannot be combined with -exclude), it must be followed by a string indicating the only file type(s) that must be included in the hash computation. For example, to include only .txt files, you specify "-only *.txt". This switch can be repeated many times in the command line to specify different file types to include.
 
 If `-skipError` is specified, ignore any encountered errors and continue processing.
 

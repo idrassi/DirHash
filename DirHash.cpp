@@ -3,7 +3,7 @@
 * for sorting. Based on OpenSSL and Microsoft CNG for hash algorithms for maximum
 * performance and compatibility.
 *
-* Copyright (c) 2010-2023 Mounir IDRASSI <mounir.idrassi@idrix.fr>. All rights reserved.
+* Copyright (c) 2010-2024 Mounir IDRASSI <mounir.idrassi@idrix.fr>. All rights reserved.
 *
 * This program is distributed in the hope that it will be useful,
 * but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
@@ -126,6 +126,8 @@ static bool g_bIncludeLastDir = false;
 static wstring g_inputDirPath;
 static size_t g_inputDirPathLength = 0;
 static bool g_bLongPathNamesEnabled = false;
+static list<wstring> onlySpecList;
+static list<wstring> excludeSpecList;
 
 
 typedef BOOL(WINAPI* SetThreadGroupAffinityFn)(
@@ -1296,8 +1298,22 @@ public:
 	operator LPCWSTR () { return m_szPath.GetPathValue().c_str(); }
 };
 
-bool IsExcludedName(LPCTSTR szName, list<wstring>& excludeSpecList)
+bool IsExcludedName(LPCTSTR szName)
 {
+    // Include check
+    if (!onlySpecList.empty()) {
+        bool matched = false;
+        for (list<wstring>::iterator It = onlySpecList.begin(); It != onlySpecList.end(); It++) {
+            if (PathMatchSpec(szName, It->c_str())) {
+                matched = true;
+                break;
+            }
+        }
+        
+		return !matched;
+    }
+
+    // Exclude check
 	for (list<wstring>::iterator It = excludeSpecList.begin(); It != excludeSpecList.end(); It++)
 	{
 		if (PathMatchSpec(szName, It->c_str()))
@@ -1801,7 +1817,7 @@ void StopThreads(bool bError)
 static CPath g_outputFileName;
 static CPath g_verificationFileName;
 
-DWORD HashFile(const CPath& filePath, vector<shared_ptr<Hash>>& pHashes, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
+DWORD HashFile(const CPath& filePath, vector<shared_ptr<Hash>>& pHashes, bool bIncludeNames, bool bStripNames, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
 {
 	DWORD dwError = 0;
 	HANDLE f;
@@ -1814,7 +1830,7 @@ DWORD HashFile(const CPath& filePath, vector<shared_ptr<Hash>>& pHashes, bool bI
 	vector<shared_ptr<Hash>> pClonedHashes;
 	vector<shared_ptr<Hash>>& pHashesToUse = pHashes;
 
-	if (!excludeSpecList.empty() && IsExcludedName(szFilePath, excludeSpecList))
+	if (IsExcludedName(szFilePath))
 		return 0;
 
 	if (bSumMode)
@@ -1946,7 +1962,7 @@ DWORD HashFile(const CPath& filePath, vector<shared_ptr<Hash>>& pHashes, bool bI
 	return dwError;
 }
 
-DWORD HashDirectory(const CPath& dirPath, vector<shared_ptr<Hash>>& pHashes, bool bIncludeNames, bool bStripNames, list<wstring>& excludeSpecList, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
+DWORD HashDirectory(const CPath& dirPath, vector<shared_ptr<Hash>>& pHashes, bool bIncludeNames, bool bStripNames, bool bQuiet, bool bShowProgress, bool bSumMode, const map<wstring, HashResultEntry>& digestList)
 {
 	wstring szDir = dirPath.GetAbsolutPathValue();
 	WIN32_FIND_DATA ffd;
@@ -1956,7 +1972,7 @@ DWORD HashDirectory(const CPath& dirPath, vector<shared_ptr<Hash>>& pHashes, boo
 	LPCWSTR szDirPath = dirPath.GetPathValue().c_str();
 	bool bSumVerificationMode = (bSumMode && !digestList.empty());
 
-	if (!excludeSpecList.empty() && IsExcludedName(szDirPath, excludeSpecList))
+	if (IsExcludedName(szDirPath))
 		return 0;
 
 
@@ -2111,13 +2127,13 @@ DWORD HashDirectory(const CPath& dirPath, vector<shared_ptr<Hash>>& pHashes, boo
 	{
 		if (it->IsDir())
 		{
-			dwError = HashDirectory(it->GetPath(), pHashes, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestList);
+			dwError = HashDirectory(it->GetPath(), pHashes, bIncludeNames, bStripNames, bQuiet, bShowProgress, bSumMode, digestList);
 			if (dwError)
 				break;
 		}
 		else
 		{
-			dwError = HashFile(it->GetPath(), pHashes, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestList);
+			dwError = HashFile(it->GetPath(), pHashes, bIncludeNames, bStripNames, bQuiet, bShowProgress, bSumMode, digestList);
 			if (dwError)
 				break;
 		}
@@ -2132,7 +2148,7 @@ void ShowLogo()
 		return;
 
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-	_tprintf(_T("\nDirHash ") _T(DIRHASH_VERSION) _T(" by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2023\n\n"));
+	_tprintf(_T("\nDirHash ") _T(DIRHASH_VERSION) _T(" by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2024\n\n"));
 	_tprintf(_T("Recursively compute hash of a given directory content in lexicographical order.\nIt can also compute the hash of a single file.\n\n"));
 	_tprintf(_T("Supported Algorithms :\n"));
 	std::vector<std::wstring> algos = Hash::GetSupportedHashIds();
@@ -2147,7 +2163,7 @@ void ShowUsage()
 {
 	ShowLogo();
 	_tprintf(TEXT("Usage: \n")
-		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-sumRelativePath] [-includeLastDir] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-stripnames] [-skipError] [-nologo] [-nofollow] [-exclude pattern1] [-exclude pattern2]\n")
+		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-sumRelativePath] [-includeLastDir] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-stripnames] [-skipError] [-nologo] [-nofollow] [-exclude pattern1] [-exclude pattern2]  [-only pattern1] [-only pattern2]\n")
 		TEXT("  DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait] [-nologo]\n")
 		TEXT("\n")
 		TEXT("  Possible values for HashAlgo (not case sensitive, default is Blake3):\n"));
@@ -2175,7 +2191,8 @@ void ShowUsage()
 		TEXT("  -nowait: avoid displaying the waiting prompt before exiting\n")
 		TEXT("  -hashnames: case sensitive path of the files/directories will be included in the hash computation\n")
 		TEXT("  -stripnames (only when -hashnames present): only last path portion of files/directories is used for hash computation\n")
-		TEXT("  -exclude: specifies a name pattern for files to exclude from hash computation.\n")
+		TEXT("  -exclude (cannot be combined with -only): specifies a name pattern for files to exclude from hash computation.\n")
+		TEXT("  -only (cannot be combined with -exclude): only files matching the pattern are included in hash computation.\n")
 		TEXT("  -skipError: ignore any encountered errors and continue processing.\n")
 		TEXT("  -nologo: don't display the copyright message and version number on startup.\n")
 		TEXT("  -nofollow: don't follow symbolic links, Junction points and mount points, excluding them from hash computation.\n")
@@ -2851,7 +2868,6 @@ int _tmain(int argc, _TCHAR* argv[])
 	bool bShowProgress = false;
 	bool bSumMode = false;
 	bool bVerifyMode = false;
-	list<wstring> excludeSpecList;
 	wstring hashAlgoToUse = L"Blake3";
 	bool bBenchmarkOp = false;
 	map < wstring, HashResultEntry> digestsList;
@@ -2863,6 +2879,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	bool bUseThreads = false;
 	bool bIsFile = false;
 	bool bForceSumMode = false;
+	bool onlySpecified = false;
+	bool excludeSpecified = false;
 	OSVERSIONINFOW versionInfo;
 	wstring inputArg;
 	ConfigParams iniParams;
@@ -2891,7 +2909,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	setbuf(stdout, NULL);
 
-	SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2023"));
+	SetConsoleTitle(_T("DirHash by Mounir IDRASSI (mounir@idrix.fr) Copyright 2010-2024"));
 
 	SetConsoleCtrlHandler(CtrlHandler, TRUE);
 
@@ -3040,6 +3058,12 @@ int _tmain(int argc, _TCHAR* argv[])
 					WaitForExit(bDontWait);
 					return 1;
 				}
+				if (onlySpecified) {
+					ShowUsage();
+					ShowError(_T("Error: -only and -exclude cannot be specified at the same time\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
 				if ((i + 1) >= argc)
 				{
 					// missing file argument               
@@ -3049,8 +3073,35 @@ int _tmain(int argc, _TCHAR* argv[])
 					return 1;
 				}
 
+				excludeSpecified = true;
 				excludeSpecList.push_back(argv[i + 1]);
 
+				i++;
+			}
+			else if (_tcscmp(argv[i], _T("-only")) == 0) {
+				if (bBenchmarkOp)
+				{
+					ShowUsage();
+					ShowError(_T("Error: -only can not be combined with -benchmark\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
+				if (excludeSpecified) {
+					ShowUsage();
+					ShowError(_T("Error: -only and -exclude cannot be specified at the same time\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
+				if ((i + 1) >= argc) {
+					// missing file argument
+					ShowUsage();
+					ShowError(_T("Error: Missing argument for switch -only\n"));
+					WaitForExit(bDontWait);
+					return 1;
+				}
+
+				onlySpecified = true;
+				onlySpecList.push_back(argv[i + 1]);
 				i++;
 			}
 			else if (_tcscmp(argv[i], _T("-clip")) == 0)
@@ -3351,7 +3402,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	if (!bIsFile)
 	{
 		CPath dirPath(inputArg.c_str());
-		dwError = HashDirectory(dirPath, pHashes, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
+		dwError = HashDirectory(dirPath, pHashes, bIncludeNames, bStripNames, bQuiet, bShowProgress, bSumMode, digestsList);
 	}
 	else
 	{
@@ -3381,7 +3432,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		};
 
 		if (dwError == NO_ERROR)
-			dwError = HashFile(filePath, pHashes, bIncludeNames, bStripNames, excludeSpecList, bQuiet, bShowProgress, bSumMode, digestsList);
+			dwError = HashFile(filePath, pHashes, bIncludeNames, bStripNames, bQuiet, bShowProgress, bSumMode, digestsList);
 	}
 
 	if (bSumMode)
