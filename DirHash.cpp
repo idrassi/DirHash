@@ -85,7 +85,7 @@
 #include "Streebog.h"
 #endif
 
-#define DIRHASH_VERSION	"1.24.0"
+#define DIRHASH_VERSION	"1.25.0"
 
 
 using namespace std;
