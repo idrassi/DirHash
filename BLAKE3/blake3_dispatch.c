@@ -15,6 +15,12 @@
 #endif
 #endif
 
+#if defined(IS_AARCH64)
+#if defined(_MSC_VER)
+#include <Windows.h>
+#endif
+#endif
+
 #if !defined(BLAKE3_ATOMICS)
 #if defined(__has_include)
 #if __has_include(<stdatomic.h>) && !defined(_MSC_VER)
