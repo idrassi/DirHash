@@ -1298,10 +1298,10 @@ public:
 	operator LPCWSTR () { return m_szPath.GetPathValue().c_str(); }
 };
 
-bool IsExcludedName(LPCTSTR szName)
+bool IsExcludedName(LPCTSTR szName, bool bIsFile)
 {
     // Include check
-    if (!onlySpecList.empty()) {
+    if (bIsFile && !onlySpecList.empty()) {// -only applied only to files
         bool matched = false;
         for (list<wstring>::iterator It = onlySpecList.begin(); It != onlySpecList.end(); It++) {
             if (PathMatchSpec(szName, It->c_str())) {
@@ -1830,7 +1830,7 @@ DWORD HashFile(const CPath& filePath, vector<shared_ptr<Hash>>& pHashes, bool bI
 	vector<shared_ptr<Hash>> pClonedHashes;
 	vector<shared_ptr<Hash>>& pHashesToUse = pHashes;
 
-	if (IsExcludedName(szFilePath))
+	if (IsExcludedName(szFilePath, true))
 		return 0;
 
 	if (bSumMode)
@@ -1972,7 +1972,7 @@ DWORD HashDirectory(const CPath& dirPath, vector<shared_ptr<Hash>>& pHashes, boo
 	LPCWSTR szDirPath = dirPath.GetPathValue().c_str();
 	bool bSumVerificationMode = (bSumMode && !digestList.empty());
 
-	if (IsExcludedName(szDirPath))
+	if (IsExcludedName(szDirPath, false))
 		return 0;
 
 
