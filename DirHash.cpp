@@ -3337,6 +3337,29 @@ int _tmain(int argc, _TCHAR* argv[])
 				WaitForExit(bDontWait);
 				return (-4);
 			}
+			if (bIsFile)
+			{
+				// if input is a file, we need to remove all entries from digestsList except the one corresponding to the input file
+				// this is because we only want to verify the hash of the input file, not all files in the sum file
+				// keep only the entry corresponding to the input file
+				wstring inputFileName = inputPath.GetPathValue();
+				auto it = digestsList.find(inputFileName);
+				if (it != digestsList.end())
+				{
+					// found the entry, keep it and remove all other entries
+					HashResultEntry entry = it->second;
+					digestsList.clear();
+					digestsList[inputFileName] = entry;
+				}
+				else
+				{
+					// entry not found, this is an error
+					if (!bQuiet)
+						ShowError(L"Error: file \"%s\" not found in checksum file.\n", inputFileName.c_str());
+					WaitForExit(bDontWait);
+					return -5;
+				}
+			}
 			bSumMode = true;
 		}
 		else if (ParseResultFile(g_verificationFileName, digestsList, rawDigestsList))
