@@ -48,7 +48,7 @@ if `-verify` is specified, program will verify the hash against value(s) present
 
 if `-includeLastDir` (only when -sum or -verify is specified), the last directory name of the input directory is included in the SUM file entries and used in the verification process. This switch implies `-sumRelativePath`.
 
-if `-threads` is specified (only when -sum or -verify specified), multithreading will be used to accelerate hashing of files.
+if `-threads` is specified (only when -sum or -verify specified), multithreading will be used to accelerate hashing of files. WARNING: This switch may slow down hashing on traditional Hard Disk Drives due to extensive parallel I/O operations. We recommend using this switch only with SSDs.
 
 if `-clip` is specified, the hash result is copied to Windows clipboard. This switch is ignored when -sum is specified.
 
