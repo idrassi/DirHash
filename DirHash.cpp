@@ -1393,17 +1393,18 @@ void ClearProgress()
 	_tprintf(_T("\r"));
 }
 
-typedef struct
+typedef struct _threadParam
 {
-	HANDLE f;
+	CPath filePath;
 	ULONGLONG fileSize;
-	std::wstring szFilePath;
 	bool bQuiet;
 	bool bShowProgress;
 	bool bSumMode;
 	bool bSumVerificationMode;
 	ByteArray pbExpectedDigest;
 	vector<shared_ptr<Hash>> pHashes;
+
+	_threadParam(const CPath& fp) : filePath(fp), fileSize(0), bQuiet(false), bShowProgress(false), bSumMode(false), bSumVerificationMode(false) {}
 } threadParam;
 
 typedef struct _JOB_ITEM {
@@ -1431,7 +1432,6 @@ void FreejobList()
 	while (pJob = (JOB_ITEM*)InterlockedPopEntrySList(g_jobsList))
 	{
 		threadParam* p = pJob->pParam;
-		CloseHandle(p->f);
 		delete p;
 		_aligned_free(pJob);
 	}
@@ -1484,12 +1484,10 @@ void AddOutputEntry(std::wstring* pParam, std::wstring* pConsoleParam, bool bQui
 	SetEvent(g_hOutputReadyEvent);
 }
 
-void AddHashJob(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, vector<shared_ptr<Hash>>& pHashes)
+void AddHashJob(const CPath& filePath, ULONGLONG fileSize, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, vector<shared_ptr<Hash>>& pHashes)
 {
-	threadParam* p = new threadParam;
-	p->f = f;
+	threadParam* p = new threadParam(filePath);
 	p->fileSize = fileSize;
-	p->szFilePath = szFilePath;
 	p->bQuiet = bQuiet;
 	p->bShowProgress = bShowProgress;
 	p->bSumMode = bSumMode;
@@ -1677,7 +1675,33 @@ DWORD WINAPI ThreadCode(LPVOID pArg)
 		if (pJob)
 		{
 			p = pJob->pParam;
-			ProcessFile(p->f, p->fileSize, p->szFilePath.c_str(), p->bQuiet, p->bShowProgress, p->bSumMode, p->bSumVerificationMode, p->pbExpectedDigest.data(), p->pHashes, pbBuffer, sizeof (pbBuffer));
+			// open the file handle
+			const wstring& szFilePath = p->filePath.GetPathValue();
+			const wstring& szAbsolutePath = p->filePath.GetAbsolutPathValue();
+			HANDLE f = CreateFileW(szAbsolutePath.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+			if (f == INVALID_HANDLE_VALUE)
+			{
+				std::wstring szMsg = FormatString (_T("Failed to open file \"%s\" for reading (error 0x%.8X)\n"), szFilePath.c_str(), GetLastError());
+				if (outputFiles[0] && (!p->bSumMode || p->bSumVerificationMode)) _ftprintf(*outputFiles[0], L"%s", szMsg.c_str());
+				if (g_bSkipError)
+				{
+					if (!p->bQuiet)
+					{
+						AddOutputEntry(new std::wstring(szMsg), NULL, p->bQuiet, true, true, 0);
+					}
+					
+					if (p->bSumMode) g_bMismatchFound = true;
+				}
+				else
+				{		
+					g_szLastErrorMsg = szMsg;
+				}
+			}
+			else
+			{
+				// ProcessFile will  close the file handle
+				ProcessFile(f, p->fileSize, szFilePath.c_str(), p->bQuiet, p->bShowProgress, p->bSumMode, p->bSumVerificationMode, p->pbExpectedDigest.data(), p->pHashes, pbBuffer, sizeof (pbBuffer));
+			}
 			delete p;
 			_aligned_free(pJob);
 		}
@@ -1829,6 +1853,7 @@ DWORD HashFile(const CPath& filePath, vector<shared_ptr<Hash>>& pHashes, bool bI
 	LPCBYTE pbExpectedDigest = NULL;
 	vector<shared_ptr<Hash>> pClonedHashes;
 	vector<shared_ptr<Hash>>& pHashesToUse = pHashes;
+	wstring fileAbsolutPath = filePath.GetAbsolutPathValue();
 
 	if (IsExcludedName(szFilePath, true))
 		return 0;
@@ -1912,7 +1937,7 @@ DWORD HashFile(const CPath& filePath, vector<shared_ptr<Hash>>& pHashes, bool bI
 			LocalFree(pCanonicalName);
 	}
 
-	f = CreateFileW(filePath.GetAbsolutPathValue().c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+	f = CreateFileW(fileAbsolutPath.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (f != INVALID_HANDLE_VALUE)
 	{
 		if (!GetFileSizeEx(f, &fileSize))
@@ -1922,13 +1947,19 @@ DWORD HashFile(const CPath& filePath, vector<shared_ptr<Hash>>& pHashes, bool bI
 			f = INVALID_HANDLE_VALUE;
 			SetLastError(dwErr);
 		}
+		else if (bSumMode && g_threadsCount)
+		{
+			// close handle in case of multithreaded sum computation/verification.
+			// worker threads will open the file again when processing the file
+			CloseHandle(f);
+		}
 	}
 
 	if (f != INVALID_HANDLE_VALUE)
 	{
 		if (bSumMode && g_threadsCount)
 		{
-			AddHashJob(f, fileSize.QuadPart, szFilePath, bQuiet, bShowProgress, bSumMode, bSumVerificationMode, pbExpectedDigest, pHashesToUse);
+			AddHashJob(filePath, fileSize.QuadPart, bQuiet, bShowProgress, bSumMode, bSumVerificationMode, pbExpectedDigest, pHashesToUse);
 		}
 		else
 			ProcessFile(f, fileSize.QuadPart, szFilePath, bQuiet, bShowProgress, bSumMode, bSumVerificationMode, pbExpectedDigest , pHashesToUse, g_pbBuffer, sizeof (g_pbBuffer));
