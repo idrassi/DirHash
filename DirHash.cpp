@@ -192,6 +192,18 @@ void ToHex(LPBYTE pbData, int iLen, LPTSTR szHex)
 	*szHex = 0;
 }
 
+void ToHex (const ByteArray& data, LPTSTR szHex)
+{
+	unsigned char b;
+	for (size_t i = 0; i < data.size(); i++)
+	{
+		b = data[i];
+		*szHex++ = ToHex(b >> 4);
+		*szHex++ = ToHex(b & 0x0F);
+	}
+	*szHex = 0;
+}
+
 bool FromHex(TCHAR c, unsigned char& b)
 {
 	if (c >= _T('0') && c <= _T('9'))
@@ -601,35 +613,69 @@ class CFilePtr
 {
 protected:
 	FILE* m_pFile;
+	FILE* m_pShadowFile;
+	wstring m_fileName;
+	wstring m_shadowFileName;
 	// forbid copying
-	CFilePtr(const CFilePtr&) : m_pFile(NULL)
+	CFilePtr(const CFilePtr&) : m_pFile(NULL), m_pShadowFile(NULL), m_fileName(L""), m_shadowFileName(L"")
 	{
 
 	}
+	
 	CFilePtr& operator = (const CFilePtr&)
 	{
 		return *this;
 	}
 public:
-	CFilePtr() : m_pFile(NULL)
+	CFilePtr() : m_pFile(NULL), m_pShadowFile(NULL)
 	{
 
 	}
 
-	explicit CFilePtr(FILE* pFile) : m_pFile(pFile)
+
+	explicit CFilePtr(FILE* pFile, const wstring& name, FILE* pShadowFile, const wstring& shadowName) 
+	: m_pFile(pFile), m_pShadowFile(pShadowFile), m_fileName(name), m_shadowFileName(shadowName)
 	{
 
 	}
 
 	~CFilePtr()
 	{
-		if (m_pFile)
-			fclose(m_pFile);
+		Close();
 	}
+
+	const wstring& GetFileName() const { return m_fileName; }
+	const wstring& GetShadowFileName() const { return m_shadowFileName; }
+
+	FILE* GetShadowFile() const { return m_pShadowFile; }
 
 	operator FILE* () const { return m_pFile; }
 
 	FILE* operator -> () const { return m_pFile; }
+
+	void CloseShadowFile()
+	{
+		if (m_pShadowFile)
+		{
+			fclose(m_pShadowFile);
+			m_pShadowFile = NULL;
+		}
+	}
+
+	void Close()
+	{
+		if (m_pFile)
+		{
+			fclose(m_pFile);
+			m_pFile = NULL;
+		}
+
+		if (m_pShadowFile)
+		{
+			fclose(m_pShadowFile);
+			m_pShadowFile = NULL;
+		}
+	}
 };
 
 
@@ -1339,7 +1385,7 @@ LPCTSTR GetShortFileName(LPCTSTR szFilePath, unsigned long long fileSize)
 	ptr++;
 
 	// calculate maximum length for file name	
-	bufferSize = (g_originalConsoleInfo.dwSize.X > (maxPrintLen + 1)) ? min(256, (g_originalConsoleInfo.dwSize.X - 1 - maxPrintLen)) : 9;
+	bufferSize = (g_originalConsoleInfo.dwSize.X > (maxPrintLen + 1)) ? min(bufferSize, (g_originalConsoleInfo.dwSize.X - 1 - maxPrintLen)) : 9;
 
 	l = _tcslen(ptr);
 	if (l < bufferSize)
@@ -1507,7 +1553,7 @@ void AddHashJob(const CPath& filePath, ULONGLONG fileSize, bool bQuiet, bool bSh
 
 void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, bool bShowProgress, bool bSumMode, bool bSumVerificationMode, LPCBYTE pbExpectedDigest, vector<shared_ptr<Hash>>& pHashes, LPBYTE pbBuffer, size_t cbBuffer)
 {
-	bShowProgress = !bQuiet && bShowProgress;
+	bShowProgress = !bQuiet && bShowProgress && !g_threadsCount; // no progress shown in case of multitheaded computation
 	unsigned long long currentSize = 0;
 	clock_t startTime = bShowProgress ? clock() : 0;
 	clock_t lastBlockTime = 0;
@@ -1518,16 +1564,16 @@ void ProcessFile(HANDLE f, ULONGLONG fileSize, LPCTSTR szFilePath, bool bQuiet, 
 	{
 		currentSize += (unsigned long long) cbCount;
 		UpdateHashes(pHashes,pbBuffer, cbCount);
-		if (bShowProgress && !g_threadsCount)
+		if (bShowProgress)
 			DisplayProgress(szFileName, currentSize, fileSize, startTime, lastBlockTime);
 		if (currentSize == fileSize)
 			break;
 	}
 
-	if (bShowProgress && !g_threadsCount)
-		ClearProgress();
-
 	CloseHandle(f);
+
+	if (bShowProgress)
+		ClearProgress();
 
 	if (bSumMode)
 	{
@@ -1635,7 +1681,14 @@ DWORD WINAPI OutputThreadCode(LPVOID pArg)
 				else
 					ShowWarningDirect(pConsole->c_str());
 			}
-			if (!pOutput->bSkipOutputFile) if (outputFiles[pOutput->nOutputFile]) _ftprintf(*outputFiles[pOutput->nOutputFile], L"%s", p->c_str());
+			if (!pOutput->bSkipOutputFile && outputFiles[pOutput->nOutputFile]) {
+				FILE* fTarget = *outputFiles[pOutput->nOutputFile];
+				// write to shadow file if it is enabled
+				FILE* fShadow = outputFiles[pOutput->nOutputFile]->GetShadowFile();
+				if (fShadow) fTarget = fShadow;
+
+				_ftprintf(fTarget, L"%s", p->c_str());
+			}
 			delete p;
 			if (bDeleteConsole) delete pConsole;
 			_aligned_free(pOutput);
@@ -2790,6 +2843,54 @@ bool ParseSumFile(const CPath& sumFile, map<wstring, HashResultEntry>& digestLis
 	return bRet;
 }
 
+bool SortSumFile(const CPath& sumFile, FILE* fTarget)
+{
+    map<wstring, HashResultEntry> digestList;
+    vector<int> skippedLines;
+	bool bRet = false;
+
+    // Parse the existing SHASUM file
+    if (ParseSumFile(sumFile, digestList, skippedLines))
+    {
+		// Convert map to vector for sorting
+		vector<pair<wstring, HashResultEntry>> sortedEntries(digestList.begin(), digestList.end());
+
+		// Sort the entries based on file path
+		sort(sortedEntries.begin(), sortedEntries.end(),
+			[](const auto& a, const auto& b) { return _wcsicmp(a.first.c_str(), b.first.c_str()) < 0; });
+
+		// write the sorted entries to the file
+		bool opendedNewFile = false;
+		if (!fTarget)
+		{
+			fTarget = _wfopen(sumFile.GetAbsolutPathValue().c_str(), L"wt,ccs=UTF-8");
+			opendedNewFile = true;
+		}
+
+		if (fTarget)
+		{
+			WCHAR szDigestHex[129]; // enough for 64 bytes digest
+			for (const auto& entry : sortedEntries)
+			{
+				wstring szLine;
+				ToHex(entry.second.m_digest, szDigestHex);
+				szLine = szDigestHex;
+				szLine += L"  ";
+				szLine += entry.first;
+				szLine += L"\n";
+				_ftprintf(fTarget, L"%s", szLine.c_str());
+			}
+
+			if (opendedNewFile)
+				fclose(fTarget);
+
+			bRet = true;
+		}
+    }
+
+	return bRet;
+}
+
 
 BOOL WINAPI CtrlHandler(DWORD fdwCtrlType)
 {
@@ -3247,10 +3348,12 @@ int _tmain(int argc, _TCHAR* argv[])
 		// in case of sum mode and if there are multiple hash algorithms specified, we need to create a separate file for each hash algorithm
 		// the file name will be the same as the output file name, but with the hash algorithm appended		
 		bool bMultiHashMode = bSumMode && pHashes.size() > 1;
+		bool bSumComputation = bSumMode && !bVerifyMode;
 		for (size_t i = 0; i < pHashes.size(); i++)
 		{
 			// create a new file name by appending the hash algorithm name
 			std::wstring newFileName = g_outputFileName.GetAbsolutPathValue();
+			std::wstring shadowFileName;
 			if (bMultiHashMode)
 			{
 				newFileName += _T(".");
@@ -3273,9 +3376,19 @@ int _tmain(int argc, _TCHAR* argv[])
 					_ftprintf(newFile, L"\n");
 			}
 
+			FILE* shadowFile = NULL;
+			if (bSumComputation && bUseThreads && !bOverwrite)
+			{
+				// create a shadow file for the current sum file. This file will be used to store the hash values.
+				// when all computations are done, we will first sort the hash values and then write the sorted values to the target sum file
+				// this is done to avoid issues with the order of hash values in the sum file when using threads
+				shadowFileName = newFileName + L".dirhash_shadow";
+				shadowFile = _tfopen(shadowFileName.c_str(), _T("wt,ccs=UTF-8"));
+			}
+
 			if (newFile)
 				// add the file to the list of output files
-				outputFiles.push_back(shared_ptr<CFilePtr>(new CFilePtr(newFile)));
+				outputFiles.push_back(shared_ptr<CFilePtr>(new CFilePtr(newFile, newFileName, shadowFile, shadowFileName)));
 			else
 				outputFiles.push_back(NULL);
 			
@@ -3607,6 +3720,55 @@ int _tmain(int argc, _TCHAR* argv[])
 					}
 				}
 
+			}
+			else
+			{
+				// Sort the entries of each sum file in case of multithreaded mode
+				// for this, we loop over outputFiles elements and for each non NULL element, we sort it by calling SortSumFile
+				if (bUseThreads)
+				{
+					for (size_t i = 0; i < outputFiles.size(); i++)
+					{
+						if (outputFiles[i])
+						{
+							FILE* pShadowFile = outputFiles[i]->GetShadowFile();
+							if (pShadowFile)
+							{
+								// close the shadow file
+								outputFiles[i]->CloseShadowFile();
+								// sort its content and write it to the target file
+								CPath shadowFilePath(outputFiles[i]->GetShadowFileName().c_str());
+								FILE* pFile = *outputFiles[i];
+								if (!SortSumFile(shadowFilePath, pFile))
+								{
+									if (!bQuiet)
+									{
+										ShowError(_T("Failed to parse and write entries from the shadow file \"%s\".\n"), shadowFilePath.GetPathValue().c_str());
+									}
+								}
+								else
+								{
+									// delete shadow file
+									DeleteFile(shadowFilePath.GetAbsolutPathValue().c_str());
+								}
+							}
+							else
+							{
+								// close the file
+								outputFiles[i]->Close();
+								// sort its content and overwrite it with the sorted content
+								CPath filePath(outputFiles[i]->GetFileName().c_str());
+								if (!SortSumFile(filePath, NULL))
+								{
+									if (!bQuiet)
+									{
+										ShowError(_T("Failed to parse and write entries from the file \"%s\".\n"), filePath.GetPathValue().c_str());
+									}
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 		else
