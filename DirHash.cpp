@@ -2738,7 +2738,7 @@ bool ParseResultFile(const CPath& resultFile, map<wstring, HashResultEntry>& pat
 	return bRet;
 }
 
-bool ParseSumFile(const CPath& sumFile, map<wstring, HashResultEntry>& digestList, vector<int>& skippedLines)
+bool ParseSumFile(const CPath& sumFile, map<wstring, HashResultEntry>& digestList, vector<int>& skippedLines, bool normalizePath = true)
 {
 	bool bRet = false;	
 	// SUM files are created using UTF-8 encoding in order to support UNICODE file names
@@ -2797,7 +2797,7 @@ bool ParseSumFile(const CPath& sumFile, map<wstring, HashResultEntry>& digestLis
 							std::replace(entryName.begin(), entryName.end(), L'/', L'\\');
 
 							// check that entreName starts by the input directory value. Otherwise add it.
-							if ( g_inputDirPathLength && ((entryName.length() < g_inputDirPathLength)
+							if ( normalizePath && g_inputDirPathLength && ((entryName.length() < g_inputDirPathLength)
 								||	(_wcsicmp(g_inputDirPath.c_str(), entryName.substr(0, g_inputDirPathLength).c_str())))
 								)
 							{
@@ -2843,33 +2843,45 @@ bool ParseSumFile(const CPath& sumFile, map<wstring, HashResultEntry>& digestLis
 	return bRet;
 }
 
+// Helper function to count the depth of directories in a path
+long long countPathDepth(const wstring& path) {
+	return std::count(path.begin(), path.end(), L'\\');
+}
+
 bool SortSumFile(const CPath& sumFile, FILE* fTarget)
 {
-    map<wstring, HashResultEntry> digestList;
-    vector<int> skippedLines;
+	map<wstring, HashResultEntry> digestList;
+	vector<int> skippedLines;
 	bool bRet = false;
 
-    // Parse the existing SHASUM file
-    if (ParseSumFile(sumFile, digestList, skippedLines))
-    {
+	// Parse the existing SHASUM file
+	if (ParseSumFile(sumFile, digestList, skippedLines, false))
+	{
 		// Convert map to vector for sorting
 		vector<pair<wstring, HashResultEntry>> sortedEntries(digestList.begin(), digestList.end());
 
-		// Sort the entries based on file path
+		// Sort the entries by directory depth first, then lexicographically
 		sort(sortedEntries.begin(), sortedEntries.end(),
-			[](const auto& a, const auto& b) { return _wcsicmp(a.first.c_str(), b.first.c_str()) < 0; });
+			[](const auto& a, const auto& b) {
+				long long depthA = countPathDepth(a.first);
+				long long depthB = countPathDepth(b.first);
+				if (depthA != depthB) {
+					return depthA > depthB; // // Entries with more directories come first
+				}
+				return _wcsicmp(a.first.c_str(), b.first.c_str()) < 0; // Lexicographical order as secondary criterion
+			});
 
-		// write the sorted entries to the file
-		bool opendedNewFile = false;
+		// Write the sorted entries to the file
+		bool openedNewFile = false;
 		if (!fTarget)
 		{
 			fTarget = _wfopen(sumFile.GetAbsolutPathValue().c_str(), L"wt,ccs=UTF-8");
-			opendedNewFile = true;
+			openedNewFile = true;
 		}
 
 		if (fTarget)
 		{
-			WCHAR szDigestHex[129]; // enough for 64 bytes digest
+			WCHAR szDigestHex[129]; // Enough for 64 bytes digest
 			for (const auto& entry : sortedEntries)
 			{
 				wstring szLine;
@@ -2881,12 +2893,12 @@ bool SortSumFile(const CPath& sumFile, FILE* fTarget)
 				_ftprintf(fTarget, L"%s", szLine.c_str());
 			}
 
-			if (opendedNewFile)
+			if (openedNewFile)
 				fclose(fTarget);
 
 			bRet = true;
 		}
-    }
+	}
 
 	return bRet;
 }
