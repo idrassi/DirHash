@@ -99,7 +99,6 @@ static HANDLE g_hConsole = NULL;
 static CONSOLE_SCREEN_BUFFER_INFO g_originalConsoleInfo;
 static vector<shared_ptr<CFilePtr>> outputFiles;
 static bool g_bLowerCase = false;
-static bool g_bUseMsCrypto = false;
 static bool g_bMismatchFound = false;
 static bool g_bSkipError = false;
 static bool g_bNoLogo = false;
@@ -3126,7 +3125,11 @@ int _tmain(int argc, _TCHAR* argv[])
 				}
 				g_bLowerCase = true;
 			}
-			else if (_tcscmp(argv[i], _T("-skipError")) == 0)
+			else if (_tcscmp(argv[i], _T("-mscrypto")) == 0)
+			{
+				// do nothing. We continue supporting this switch for backward compatibility
+			}
+			else if (_tcsicmp(argv[i], _T("-skipError")) == 0)
 			{
 				if (bBenchmarkOp)
 				{
