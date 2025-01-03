@@ -67,6 +67,9 @@
 #include <time.h>
 #include <strsafe.h>
 #if !defined (_M_ARM64) && !defined (_M_ARM)
+#include <openssl/sha.h>
+#include <openssl/md5.h>
+#include <openssl/evp.h>
 #include "BLAKE2/sse/blake2.h"
 #else
 #include "BLAKE2/neon/blake2.h"
@@ -99,6 +102,7 @@ static HANDLE g_hConsole = NULL;
 static CONSOLE_SCREEN_BUFFER_INFO g_originalConsoleInfo;
 static vector<shared_ptr<CFilePtr>> outputFiles;
 static bool g_bLowerCase = false;
+static bool g_bUseMsCrypto = false;
 static bool g_bMismatchFound = false;
 static bool g_bSkipError = false;
 static bool g_bNoLogo = false;
@@ -736,6 +740,99 @@ public:
 	}
 };
 
+#if !defined (_M_ARM64) && !defined (_M_ARM)
+
+class OSSLHash : public Hash
+{
+protected:
+	EVP_MD_CTX* m_mdctx;
+	const EVP_MD* m_type;
+	int m_initialized;
+public:
+	OSSLHash(const EVP_MD* type) : Hash(), m_type (type), m_initialized(0)
+	{
+		m_mdctx = EVP_MD_CTX_new();
+		Init();
+	}
+
+	virtual ~OSSLHash ()
+	{
+		if (m_mdctx)
+		{
+			EVP_MD_CTX_destroy(m_mdctx);
+			m_mdctx = NULL;
+		}
+	}
+
+	void Init() { 
+		if (m_mdctx) 
+			m_initialized = EVP_DigestInit (m_mdctx, m_type); 
+	}
+
+	void Update(LPCBYTE pbData, size_t dwLength) { 
+		if (m_initialized) 
+			EVP_DigestUpdate (m_mdctx, pbData, dwLength);
+	}
+
+	void Final(LPBYTE pbDigest) {
+		if (m_initialized)
+		{
+			EVP_DigestFinal(m_mdctx, pbDigest, NULL);
+			m_initialized = 0;
+		}
+	}
+
+	int GetHashSize() { return EVP_MD_size (m_type); }
+};
+
+class OSSLMd5 : public OSSLHash
+{
+public:
+	OSSLMd5() : OSSLHash(EVP_md5()) {}
+	~OSSLMd5() {}
+
+	LPCTSTR GetID() { return _T("MD5"); }
+};
+
+class OSSLSha1 : public OSSLHash
+{
+public:
+	OSSLSha1() : OSSLHash(EVP_sha1()) {}
+	~OSSLSha1() {}
+
+	LPCTSTR GetID() { return _T("SHA1"); }
+};
+
+class OSSLSha256 : public OSSLHash
+{
+public:
+	OSSLSha256() : OSSLHash(EVP_sha256()) {}
+	~OSSLSha256() {}
+
+	LPCTSTR GetID() { return _T("SHA256"); }
+};
+
+class OSSLSha384 : public OSSLHash
+{
+public:
+	OSSLSha384() : OSSLHash(EVP_sha384()) {}
+	~OSSLSha384() {}
+
+	LPCTSTR GetID() { return _T("SHA384"); }
+};
+
+class OSSLSha512 : public OSSLHash
+{
+public:
+	OSSLSha512() : OSSLHash(EVP_sha512()) {}
+	~OSSLSha512() {}
+
+	LPCTSTR GetID() { return _T("SHA512"); }
+};
+
+
+#endif
+
 class NeonBlake2s : public Hash
 {
 protected:
@@ -1114,23 +1211,58 @@ Hash* Hash::GetHash(LPCTSTR szHashId)
 {
 	if (!szHashId || (_tcsicmp(szHashId, _T("SHA1")) == 0))
 	{
-		return new Sha1Cng();
+		if (g_bUseMsCrypto)
+		{
+			return new Sha1Cng();
+		}
+#if !defined (_M_ARM64) && !defined (_M_ARM)
+		else
+			return new OSSLSha1();
+#endif
 	}
 	if (_tcsicmp(szHashId, _T("SHA256")) == 0)
 	{
-		return new Sha256Cng();
+		if (g_bUseMsCrypto)
+		{
+			return new Sha256Cng();
+		}
+#if !defined (_M_ARM64) && !defined (_M_ARM)
+		else
+			return new OSSLSha256();
+#endif
 	}
 	if (_tcsicmp(szHashId, _T("SHA384")) == 0)
 	{
-		return new Sha384Cng();
+		if (g_bUseMsCrypto)
+		{
+			return new Sha384Cng();
+		}
+#if !defined (_M_ARM64) && !defined (_M_ARM)
+		else
+			return new OSSLSha384();
+#endif
 	}
 	if (_tcsicmp(szHashId, _T("SHA512")) == 0)
 	{
-		return new Sha512Cng();
+		if (g_bUseMsCrypto)
+		{
+			return new Sha512Cng();
+		}
+#if !defined (_M_ARM64) && !defined (_M_ARM)
+		else
+			return new OSSLSha512();
+#endif
 	}
 	if (_tcsicmp(szHashId, _T("MD5")) == 0)
 	{
-		return new Md5Cng();
+		if (g_bUseMsCrypto)
+		{
+			return new Md5Cng();
+		}
+#if !defined (_M_ARM64) && !defined (_M_ARM)
+		else
+			return new OSSLMd5();
+#endif
 	}
 	if (_tcsicmp(szHashId, _T("Blake2s")) == 0)
 	{
@@ -2115,8 +2247,8 @@ void ShowUsage()
 {
 	ShowLogo();
 	_tprintf(TEXT("Usage: \n")
-		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-sum] [-sumRelativePath] [-includeLastDir] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-stripnames] [-skipError] [-nologo] [-nofollow] [-exclude pattern1] [-exclude pattern2]  [-only pattern1] [-only pattern2]\n")
-		TEXT("  DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-clip] [-overwrite]  [-quiet] [-nowait] [-nologo]\n")
+		TEXT("  DirHash.exe DirectoryOrFilePath [HashAlgo] [-t ResultFileName] [-mscrypto] [-sum] [-sumRelativePath] [-includeLastDir] [-verify FileName] [-threads] [-clip] [-lowercase] [-overwrite]  [-quiet] [-nowait] [-hashnames] [-stripnames] [-skipError] [-nologo] [-nofollow] [-exclude pattern1] [-exclude pattern2]  [-only pattern1] [-only pattern2]\n")
+		TEXT("  DirHash.exe -benchmark [HashAlgo | All] [-t ResultFileName] [-mscrypto] [-clip] [-overwrite]  [-quiet] [-nowait] [-nologo]\n")
 		TEXT("\n")
 		TEXT("  Possible values for HashAlgo (not case sensitive, default is Blake3):\n"));
 	   _tprintf(_T(" "));
@@ -2128,6 +2260,7 @@ void ShowUsage()
 		TEXT("\n\n")
 		TEXT("  ResultFileName: text file where the result will be appended\n")
 		TEXT("  -benchmark: perform speed benchmark of the selected algorithm. If \"All\" is specified, then all algorithms are benchmarked.\n")
+		TEXT("  -mscrypto: use Windows native implementation of hash algorithms (Always enabled on ARM).\n")
 		TEXT("  -sum: output hash of every file processed in a format similar to shasum.\n")
 		TEXT("  -sumRelativePath (only when -sum is specified): the file paths are stored in the output file as relative to the input directory.\n")
 		TEXT("  -verify: verify hash against value(s) present on the specified file.\n")
@@ -2285,6 +2418,7 @@ typedef struct
 	bool bIncludeNames;
 	bool bStripNames;
 	bool bLowerCase;
+	bool bUseMsCrypto;
 	bool bSkipError;
 	bool bNoLogo;
 	bool bNoFollow;
@@ -2297,6 +2431,7 @@ typedef struct
 void LoadDefaults(ConfigParams& iniParams)
 {
 	iniParams.hashAlgoToUse = L"Blake3";
+	iniParams.bUseMsCrypto = false;
 	iniParams.bDontWait = false;
 	iniParams.bIncludeNames = false;
 	iniParams.bStripNames = false;
@@ -2386,6 +2521,14 @@ void LoadDefaults(ConfigParams& iniParams)
 					iniParams.bLowerCase = false;
 			}
 
+			if (GetPrivateProfileStringW(L"Defaults", L"MSCrypto", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
+			{
+				if (_wcsicmp(szValue, L"True") == 0)
+					iniParams.bUseMsCrypto = true;
+				else
+					iniParams.bUseMsCrypto = false;
+			}
+
 			if (GetPrivateProfileStringW(L"Defaults", L"SkipError", L"False", szValue, ARRAYSIZE(szValue), szInitPath))
 			{
 				if (_wcsicmp(szValue, L"True") == 0)
@@ -2443,6 +2586,11 @@ void LoadDefaults(ConfigParams& iniParams)
 			}
 		}
 	}
+
+#if defined (_M_ARM64) || defined (_M_ARM)
+	// we always use Windows native crypto on ARM platform because OpenSSL is not optimized for such platforms
+	iniParams.bUseMsCrypto = true;
+#endif
 }
 
 bool ParseResultLine(wchar_t* szLine, wstring& targetName, wstring& hashName, ByteArray& digestValue)
@@ -2928,6 +3076,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	bIncludeNames = iniParams.bIncludeNames;
 	bStripNames = iniParams.bStripNames;
 	g_bLowerCase = iniParams.bLowerCase;
+	g_bUseMsCrypto = iniParams.bUseMsCrypto;
 	g_bSkipError = iniParams.bSkipError;
 	g_bNoLogo = iniParams.bNoLogo;
 	g_bNoFollow = iniParams.bNoFollow;
@@ -3127,7 +3276,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			}
 			else if (_tcscmp(argv[i], _T("-mscrypto")) == 0)
 			{
-				// do nothing. We continue supporting this switch for backward compatibility
+				g_bUseMsCrypto = true;
 			}
 			else if (_tcsicmp(argv[i], _T("-skipError")) == 0)
 			{
